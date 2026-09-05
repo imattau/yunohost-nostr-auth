@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # redesign" - a sudo-spawned-per-request helper doesn't work in
     # containerized installs where the container sets no_new_privs).
     mint_session_socket: Path = Path("/run/nostr_auth-mint/mint.sock")
+    identity_lookup_socket: Path = Path("/run/nostr_auth-lookup/lookup.sock")
 
     # PLAN.md Phase 13: "rate limiting, brute-force throttling." Rather
     # than reimplement IP banning in Python, this writes a dedicated,
