@@ -301,10 +301,17 @@ Phase 9 and 13). Every responsibility below is handled: a dedicated restricted
 system user, SQLite DB preserved across upgrade via `resources.data_dir`,
 systemd + nginx configuration, SSOwat permissions, the `/nostr-login` URL,
 and clean removal - install/upgrade/remove all repeatedly verified against a
-real YunoHost 12 server this session. `scripts/backup`, `restore`, and
-`change_url` are provided but haven't specifically been live-tested the same
-way (unlike install/upgrade/remove, no session-long verification loop
-exercised them yet).
+real YunoHost 12 server this session. `scripts/backup`/`restore` are now also
+live-verified (full install→backup→remove→restore cycle against a real
+server) - two real bugs turned up and got fixed: `scripts/restore` sourced
+`_common.sh` via a relative path that only resolves during install/upgrade/
+remove, not restore (which runs from a different working directory), and
+`ynh_restore` (unlike `ynh_config_add_nginx`/`ynh_config_add_systemd`) never
+reloads anything on its own, so a restored nginx conf and systemd units sat
+correctly on disk but weren't actually picked up until the corresponding
+services were told to reload. `change_url` is provided but untested this
+session - lower-risk (no bespoke logic beyond re-rendering nginx for a new
+domain and restarting), but still unverified.
 
 Build:
 
