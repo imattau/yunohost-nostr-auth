@@ -19,16 +19,21 @@ HTTP endpoints) are implemented and tested. See
 findings this is built against.
 
 Short version of the one architectural wrinkle: there is no password-less
-login function YunoHost exposes. Minting a `yunohost.portal` session
-requires the privileges of the `ynh-portal` system user (to read
-`/etc/yunohost/.ssowat_cookie_secret` and write
-`/var/cache/yunohost-portal/sessions/`), so session minting happens in a
-separate, narrowly-scoped helper (`ynh/mint_session_helper.py`) invoked via
-`sudo -u ynh-portal`, never in this daemon's own process. That helper's
-crypto is unit-tested here, but the helper itself, the sudoers rule, and
-the LDAP anonymous-bind assumption it relies on are **not yet verified
-against a live YunoHost 12 install** — that's the next real milestone
-(`nostr_auth_ynh`'s packaging + a test install).
+login function YunoHost exposes, and minting a `yunohost.portal` session
+requires the privileges of the `ynh-portal` system user. Verified live
+against a real (containerized) YunoHost 12 install: a `sudo`-spawned-per-
+request helper doesn't work there at all (the container sets the kernel's
+`no_new_privs` bit, which permanently blocks any privilege escalation via
+`sudo`/setuid). Session minting instead runs as its own always-running
+`ynh-portal`-owned systemd service (`ynh/mint_session_server.py`), talked
+to over a Unix socket authenticated by `SO_PEERCRED` - a privilege *drop*
+by systemd-as-root at service start, not a *gain* by the daemon itself, so
+it isn't affected by that restriction. `/link` (real password login →
+cookie → our linking logic) is confirmed working end-to-end on a live
+install; `/authenticate` against this new socket design is implemented and
+unit-tested but its own live re-verification was cut short by an unrelated
+connection outage - see [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md)'s
+open items.
 
 ## Layout
 
@@ -48,8 +53,8 @@ src/yunohost_nostr_auth/
     ynh/
         portal_client.py       # unprivileged: "who is this cookie", via the real portal-api's /me
         permissions.py         # documents the privilege boundary below
-        sessions.py             # unprivileged: shells out to the helper below via sudo
-        mint_session_helper.py  # privileged (runs as ynh-portal): the actual sudo entry point
+        sessions.py             # unprivileged: talks to the socket below, holds no privilege itself
+        mint_session_server.py  # privileged (own service, runs as ynh-portal): the socket listener
         portal_cookie.py        # privileged: reproduces YunoHost's JWT + session-file format
         ldap_lookup.py          # privileged: anonymous LDAP bind for cn/mail lookup
 ```

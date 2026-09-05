@@ -26,10 +26,12 @@ class Settings(BaseSettings):
     # is what actually prevents replay).
     clock_skew_seconds: int = 60
 
-    # ynh/sessions.py: the privileged helper invoked to mint a real
-    # yunohost.portal session (PHASE0_INVESTIGATION.md's Conclusions).
-    mint_session_helper: Path = Path("/usr/bin/yunohost-nostr-auth-mint-session")
-    mint_session_user: str = "ynh-portal"
+    # ynh/sessions.py talks to the long-running, ynh-portal-owned
+    # mint_session_server.py over this Unix socket to mint a real
+    # yunohost.portal session (PHASE0_INVESTIGATION.md's "Privilege-drop
+    # redesign" - a sudo-spawned-per-request helper doesn't work in
+    # containerized installs where the container sets no_new_privs).
+    mint_session_socket: Path = Path("/run/nostr_auth-mint/mint.sock")
 
     @property
     def mappings_db_path(self) -> Path:

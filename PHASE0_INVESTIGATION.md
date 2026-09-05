@@ -102,16 +102,82 @@ This maps onto the module layout already scaffolded:
 - `ynh/sessions.py` — the actual privileged-helper invocation (Phase 2 will add the sudoers rule + helper script here, packaged by `nostr_auth_ynh`'s `scripts/install`).
 - `ynh/permissions.py` — documents/enforces exactly this boundary: what the unprivileged daemon can do vs. what only the `ynh-portal`-privileged helper can do.
 
-## Open items before this ships against a real server
+## Verified against a real install (2026-09-05)
 
-Phase 2 (this repo's `auth/`, `identity/`, `ynh/` modules, and `server.py`)
-is now implemented and unit-tested against the design above, using
-`sudo -n -u ynh-portal` as the chosen privilege-drop mechanism
-(`ynh/sessions.py` + `ynh/mint_session_helper.py`, packaged by
-`nostr_auth_ynh`'s `conf/sudoers` + `scripts/_common.sh`). None of the
-following has been exercised against a real YunoHost 12 install yet:
+Set up a real test install on `lostcause.nohost.me` (YunoHost 12.1.41.2,
+the exact commit this document was written against) and drove the actual
+HTTP flow end-to-end: a disposable test user, a real password login
+against `yunohost-portal-api`, our own `/link/challenge` → sign → `/link`,
+then `/challenge` → sign → `/authenticate`. This caught three real bugs
+source-reading alone didn't surface:
 
-- Confirm `/etc/yunohost/.ssowat_cookie_secret` and `/var/cache/yunohost-portal/sessions` permissions match what's read from source here.
-- Confirm the anonymous LDAP bind `ldap_lookup.py` relies on (over `ldapi:///var/run/slapd/ldapi`) actually returns `cn`/`mail` for an arbitrary user when run as `ynh-portal`, not just as `yunohost-portal-api`'s own process - same mechanism, but worth checking slapd's ACLs aren't scoped some other way (e.g. by the calling binary's path).
-- Confirm `sudo -n -u ynh-portal <helper>` actually succeeds from inside `nostr_auth_ynh`'s systemd unit: PAM session setup, syslog, and sudo's own lecture/tty logic can behave differently under a systemd service (no controlling tty) than in a login shell - `-n` should make it fail fast rather than hang if something's wrong, but "fails fast" still needs to be confirmed to mean "succeeds," not "fails fast for a different reason."
+1. **`ProtectHome=yes` crash-loop.** `$data_dir` lives under
+   `/home/yunohost.app/<app>`, but `ProtectHome=yes` makes `/home`
+   inaccessible and empty regardless of `ReadWritePaths` - the daemon
+   crash-looped on `PermissionError` trying to create its own data
+   directory on first start. Fixed by omitting `ProtectHome` entirely
+   (`ProtectSystem=strict` alone still locks down everything else).
+2. **Missing `Host` header on the internal `/me` call.** `ynh/portal_client.py`
+   called `yunohost-portal-api`'s `/me` without an explicit `Host` header,
+   so urllib defaulted it to the literal `127.0.0.1:6788` - and
+   `get_session_cookie()`'s host-binding check (this document, above)
+   rejected every session as unauthenticated, even a genuinely valid one.
+   Fixed by threading the original request's `Host` header through
+   explicitly.
+3. **`sudo` is a dead end in a containerized install.** This is the big
+   one. Even after fixing (1) and (2), and after removing the explicit
+   `NoNewPrivileges=yes` line from the daemon's systemd unit, every
+   `/authenticate` call still failed with:
+
+   ```
+   sudo: The "no new privileges" flag is set, which prevents sudo from running as root.
+   sudo: If sudo is running in a container, you may need to adjust the container configuration to disable the flag.
+   ```
+
+   Setting `NoNewPrivileges=no` explicitly (several *other* hardening
+   options - `RestrictNamespaces=`, `SystemCallFilter=`, `LockPersonality=`
+   - each independently *imply* `NoNewPrivileges=yes` regardless of
+   whether it's written out) still didn't fix it on a fresh install. The
+   remaining explanation, and the one sudo's own hint text points at:
+   `lostcause.nohost.me` runs inside a container (typical for nohost.me-
+   hosted instances) that sets the kernel's `no_new_privs` bit at a level
+   entirely outside this package's systemd unit. Once set on a process,
+   that bit is permanently inherited by every descendant - no unit-level
+   setting can undo it. This blocks **any** privilege-escalation-via-execve
+   from our unprivileged daemon, not just `sudo` specifically: a setuid
+   helper binary would hit the identical wall.
+
+### Privilege-drop redesign
+
+The fix is to never ask the unprivileged daemon to *gain* privilege at
+request time at all. `mint_session_server.py` is a separate, always-running
+process with its own systemd service (`User=ynh-portal`) - systemd (as
+root) forks and drops to `ynh-portal` the same way it starts any
+`User=`-scoped service, which is a privilege *drop* by an already-
+privileged supervisor, not a *gain* by this process, so it's unaffected by
+`no_new_privs`. The main daemon talks to it over a Unix domain socket
+instead of shelling out to `sudo`. Since the socket's own file permissions
+can't cheaply restrict which of two different system users may connect,
+every connection's `SO_PEERCRED` is checked against the daemon's own uid
+before the request is serviced at all - authorization moved from a sudoers
+rule to a peer-credential check, but the shape (only the daemon may ask for
+a session; the check happens before touching LDAP or the cookie secret) is
+the same.
+
+Re-verified end-to-end after the redesign: `/link` (real password login →
+cookie → our linking logic) confirmed working live on two different
+domains (the original + a dedicated `nostrauth-test` subdomain used after
+the first test install ended up shadowing the main domain's root path -
+install on a dedicated subdomain, not the main domain, next time).
+`/authenticate`'s socket-based mint path is implemented and unit-tested
+(`tests/test_mint_session_server.py`, `tests/test_sessions.py`) but the
+live re-verification of the *new* socket design specifically was cut short
+by an unrelated MCP connection outage - that's the one remaining
+open item below.
+
+## Open items
+
+- Re-verify `/authenticate` live against the socket-based `mint_session_server.py` end-to-end (confirmed working through `/link`; the redesign itself is unit-tested but not yet exercised live) - the actual anonymous-LDAP-bind assumption below rides on this.
+- Confirm the anonymous LDAP bind `ldap_lookup.py` relies on (over `ldapi:///var/run/slapd/ldapi`) actually returns `cn`/`mail` for an arbitrary user when run as `ynh-portal`.
+- Confirm `mint_session_server.py`'s socket, under `RuntimeDirectory=` + `ProtectSystem=strict` on both services, is actually reachable cross-service the way `nostr_auth_ynh`'s unit files assume (connecting to an existing socket shouldn't need write access to its directory, but this is exactly the kind of assumption Phase 1 already got wrong twice above).
 - Track `ldap_ynhuser.py` upstream for changes across YunoHost releases; this whole document is a snapshot of one commit.
