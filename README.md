@@ -82,6 +82,26 @@ sign-in → real challenge signed and posted to `/authenticate`, correctly
 accepted once linked and rejected while unlinked; NIP-05 endpoint resolves
 the linked pubkey.
 
+Phase 13's "minimum controls" checklist is now fully covered. Two real
+gaps were found and fixed while going through it: `script-src` in
+`CONTENT_SECURITY_POLICY` carried `'unsafe-inline'` (both pages' logic has
+been moved out of an inline `<script>` into external
+`web/static/nostr-*-page.js` files specifically so it no longer needs to -
+`style-src` keeps it, since inline `<style>`/`style="..."` remain and CSS
+injection isn't in the same severity class as script injection for this
+threat model); and every audit-log line (`login success`, `identity
+linked`, etc.) was silently dropped in production, since nothing ever
+configured logging and Python's handler-of-last-resort only emits
+WARNING+ - `server.py`'s `main()` now calls `logging.basicConfig(level=
+logging.INFO)`. Rate limiting/brute-force throttling is handled the same
+way YunoHost's own portal does it (`conf/fail2ban/yunohost-portal.conf`,
+see `PHASE0_INVESTIGATION.md`): failed login/link/unlink attempts are
+logged with the real client IP (`server.py`'s `_client_ip`, trusting
+`X-Real-IP` - only valid because this service is only ever reached
+through nostr_auth_ynh's own nginx, never directly) to a dedicated file a
+`nostr_auth_ynh` fail2ban jail watches, rather than reimplementing IP
+banning here. See that repo for the jail/systemd wiring.
+
 ## Layout
 
 ```text
@@ -115,6 +135,9 @@ src/yunohost_nostr_auth/
             nostr-connect-vendor.js  # vendored nostr-tools NIP-46 client (Phase 10) - see
                                       # vendor/nostr-connect/ for the build recipe
             nostr-connect-ui.js       # shared bunker://+QR+localStorage glue for both pages
+            nostr-login-page.js       # /nostr-login's own logic - external, not inline, so
+                                       # CONTENT_SECURITY_POLICY's script-src can be 'self' only
+            nostr-account-page.js     # /nostr-account's own logic - same reason
 
 vendor/nostr-connect/    # the (not shipped) build recipe for nostr-connect-vendor.js
 ```

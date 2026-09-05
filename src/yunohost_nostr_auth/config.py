@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     # containerized installs where the container sets no_new_privs).
     mint_session_socket: Path = Path("/run/nostr_auth-mint/mint.sock")
 
+    # PLAN.md Phase 13: "rate limiting, brute-force throttling." Rather
+    # than reimplement IP banning in Python, this writes a dedicated,
+    # fail2ban-parseable log of auth/link failures (each line includes the
+    # requesting IP - see server.py's _client_ip) that nostr_auth_ynh's
+    # conf/systemd.service (LogsDirectory=) and ynh_config_add_fail2ban
+    # jail/filter watch. None (the default) disables the extra file
+    # handler entirely - e.g. in tests, or a non-YunoHost deployment that
+    # wants its own throttling instead.
+    security_log_path: Path | None = None
+
     @property
     def mappings_db_path(self) -> Path:
         return self.data_dir / "identities.db"

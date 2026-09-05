@@ -42,7 +42,7 @@ from starlette.routing import Route
 
 from yunohost_nostr_auth.auth import login, nostr_verify
 from yunohost_nostr_auth.auth.challenge import ChallengeStore
-from yunohost_nostr_auth.config import get_settings
+from yunohost_nostr_auth.config import Settings, get_settings
 from yunohost_nostr_auth.identity import linking, npub
 from yunohost_nostr_auth.identity.mappings import MappingStore
 from yunohost_nostr_auth.web.page import (
@@ -60,6 +60,22 @@ logger = logging.getLogger("yunohost_nostr_auth.server")
 LOGIN_ACTION = login.LOGIN_ACTION
 LINK_ACTION = linking.LINK_ACTION
 ALLOWED_ACTIONS = {LOGIN_ACTION, LINK_ACTION}
+
+
+def _client_ip(request: Request) -> str:
+    """The real client IP, not the nginx proxy's.
+
+    nostr_auth_ynh's nginx config always sets X-Real-IP from $remote_addr
+    (see proxy_params_no_auth, YunoHost's own baseline) - unlike
+    Authorization or other app-facing headers, nginx's proxy_set_header
+    unconditionally *overwrites* rather than forwards this, so a client
+    can't spoof it by sending its own X-Real-IP. Only trust it because
+    this service listens on 127.0.0.1 and is only ever reached through
+    that nginx, never directly from the internet.
+    """
+    return request.headers.get("x-real-ip") or (
+        request.client.host if request.client else "unknown"
+    )
 
 
 def _require_json(request: Request) -> None:
@@ -114,13 +130,17 @@ async def authenticate_endpoint(request: Request) -> Response:
     try:
         minted = login.authenticate(mappings, challenge=challenge, event_json=json.dumps(event))
     except login.LoginError as e:
-        logger.info("nostr login failure: %s", e)
+        # PLAN.md Phase 13: rate limiting / brute-force throttling. This
+        # exact "... failure from <ip>: ..." shape is what
+        # nostr_auth_ynh's fail2ban filter matches - see server.py's
+        # _client_ip and conf/f2b_filter.conf in that repo.
+        logger.warning("nostr login failure from %s: %s", _client_ip(request), e)
         raise _ApiError(401, str(e)) from e
     except SessionMintError as e:
         logger.error("nostr login: session minting failed: %s", e)
         raise _ApiError(502, "could not establish a YunoHost session") from e
 
-    logger.info("nostr login success")
+    logger.info("nostr login success from %s", _client_ip(request))
     response = JSONResponse({"ok": True})
     response.set_cookie(
         minted.cookie_name,
@@ -182,10 +202,10 @@ async def link_endpoint(request: Request) -> Response:
             portal_api_base_url=settings.portal_api_base_url,
         )
     except linking.LinkingError as e:
-        logger.info("identity link failure: %s", e)
+        logger.warning("identity link failure from %s: %s", _client_ip(request), e)
         raise _ApiError(401, str(e)) from e
 
-    logger.info("identity linked")
+    logger.info("identity linked (%s) from %s", username, _client_ip(request))
     return JSONResponse({"ok": True, "username": username})
 
 
@@ -204,10 +224,10 @@ async def unlink_endpoint(request: Request) -> Response:
             portal_api_base_url=settings.portal_api_base_url,
         )
     except linking.LinkingError as e:
-        logger.info("identity unlink failure: %s", e)
+        logger.warning("identity unlink failure from %s: %s", _client_ip(request), e)
         raise _ApiError(401, str(e)) from e
 
-    logger.info("identity removed")
+    logger.info("identity removed (%s) from %s", username, _client_ip(request))
     return JSONResponse({"ok": True, "username": username})
 
 
@@ -311,9 +331,31 @@ def create_app() -> Starlette:
     return app
 
 
+def _configure_logging(settings: Settings) -> None:
+    # Without this, nothing below WARNING ever reaches a handler (Python's
+    # logging "handler of last resort" only emits WARNING+), which
+    # silently dropped every audit-log line PLAN.md Phase 13 asks for
+    # (login success, identity linked, etc. are all .info() calls) even
+    # though the code looked like it was already logging them.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+
+    if settings.security_log_path is not None:
+        # PLAN.md Phase 13's "rate limiting, brute-force throttling":
+        # nostr_auth_ynh wires ynh_config_add_fail2ban to watch this exact
+        # file for the "... failure from <ip>: ..." lines server.py's
+        # endpoint handlers emit through `logger`.
+        handler = logging.FileHandler(settings.security_log_path)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+        logger.addHandler(handler)
+
+
 def main() -> None:
     import uvicorn
 
+    _configure_logging(get_settings())
     uvicorn.run(create_app(), host="127.0.0.1", port=8766)
 
 

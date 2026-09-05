@@ -394,6 +394,14 @@ Do not create an irreversible Nostr-only mode in the first versions.
 
 ## Phase 13: Security controls
 
+**Status: complete.** Every item below is implemented; see README.md's
+Status section for the two real gaps this pass found and fixed (a
+`script-src 'unsafe-inline'` CSP hole, and audit-log lines that were
+silently dropped because nothing configured Python logging) and how
+rate limiting/brute-force throttling is wired (a fail2ban jail in
+`nostr_auth_ynh`, matching how YunoHost's own portal does it - see
+`PHASE0_INVESTIGATION.md` - rather than reimplemented in-process).
+
 Minimum controls:
 
 - CSPRNG challenges

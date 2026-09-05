@@ -22,15 +22,27 @@ from importlib import resources
 # WebSocket to whatever relay a bunker:// link names, or to this page's
 # own default relay list for the nostrconnect:// QR flow - both are
 # inherently third-party origins we can't pin down to a fixed allowlist.
+#
+# script-src is 'self' only, no 'unsafe-inline' - PLAN.md Phase 13's
+# "strict CSP" is only as strict as this directive, since it's the one
+# that actually blocks arbitrary injected <script>/onclick=.../javascript:
+# execution. Both pages' logic lives in the external nostr-*-page.js files
+# under web/static/ specifically so this can be 'self'-only; keep it that
+# way rather than adding an inline <script> back. style-src keeps
+# 'unsafe-inline' - both pages still use inline <style> blocks and style="
+# ..." attributes, and CSS injection isn't in the same severity class as
+# script injection for this threat model.
 CONTENT_SECURITY_POLICY = (
     "upgrade-insecure-requests; default-src 'self'; connect-src 'self' wss:; "
-    "style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; script-src 'self'; "
     "object-src 'none'; img-src 'self' data:;"
 )
 
 _STATIC_CONTENT_TYPES = {
     "nostr-connect-vendor.js": "application/javascript",
     "nostr-connect-ui.js": "application/javascript",
+    "nostr-login-page.js": "application/javascript",
+    "nostr-account-page.js": "application/javascript",
 }
 
 
