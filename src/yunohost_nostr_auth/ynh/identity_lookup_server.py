@@ -51,6 +51,12 @@ def _read_line(conn: socket.socket) -> bytes:
 
 
 def _uid_in_group(uid: int, gid: int, group_name: str) -> bool:
+    # The MCP root broker may independently re-check authorization. Root is
+    # already trusted by the operating system and cannot be made less
+    # privileged by this lookup socket, but it still receives only the same
+    # single-key response as every other caller.
+    if uid == 0:
+        return True
     try:
         group = grp.getgrnam(group_name)
         username = pwd.getpwuid(uid).pw_name

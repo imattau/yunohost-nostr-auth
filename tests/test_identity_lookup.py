@@ -29,6 +29,11 @@ def _request(socket_path, payload):
         return json.loads(sock.recv(4096))
 
 
+def test_root_is_allowed_for_broker_revalidation(monkeypatch):
+    monkeypatch.setattr(identity_lookup_server.grp, "getgrnam", lambda name: (_ for _ in ()).throw(KeyError(name)))
+    assert identity_lookup_server._uid_in_group(0, 0, "nostr-auth-lookup") is True
+
+
 def _start(tmp_path, mappings, monkeypatch):
     monkeypatch.setattr(
         identity_lookup_server.grp,

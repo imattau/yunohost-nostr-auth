@@ -21,3 +21,8 @@ The proven `SO_PEERCRED` Unix-socket helper pattern is reusable by MCP for
 privileged operations. `nostr_auth` should not depend on MCP internals or
 mint MCP authorization; each service remains responsible for its own policy.
 
+For optional group-backed MCP authorization, `nostr_auth` exposes a separate
+read-only lookup socket at `/run/nostr_auth-lookup/lookup.sock`. It accepts a
+single lowercase 64-character public-key hex value and returns only whether
+that identity is linked and its YunoHost username. It has no list, batch, or
+write operation and is separate from the privileged session-mint socket.
