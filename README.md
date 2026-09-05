@@ -12,10 +12,14 @@ See [PLAN.md](PLAN.md) for the full architecture and phased roadmap.
 
 ## Status
 
-Phase 0/1: reverse-engineering YunoHost 12's portal API and SSOwat session
-creation before writing any authentication code. Findings will land in
-`PHASE0_INVESTIGATION.md` (see PLAN.md's Phase 1 for the exact questions
-being answered).
+Phase 1 investigation done — see [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md).
+Short version: there is no password-less login function this service can
+call on its own. Minting a `yunohost.portal` session requires the
+privileges of the `ynh-portal` system user (to read
+`/etc/yunohost/.ssowat_cookie_secret` and write
+`/var/cache/yunohost-portal/sessions/`), so session creation has to go
+through a narrowly-scoped privileged helper rather than happening in this
+daemon's own process. That helper (Phase 2) is the next thing to build.
 
 ## Layout
 

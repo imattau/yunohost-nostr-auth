@@ -1,17 +1,34 @@
-"""Bridge into YunoHost's own session creation (PLAN.md Phase 1).
+"""Entry point the HTTP handlers call to turn a verified Nostr login into a
+YunoHost portal session.
 
-The open question this module exists to answer, before any of it is
-implemented: does YunoHost 12's portal API / SSOwat expose an internal
-callable login function this service can invoke directly, or does session
-creation have to be replicated (cookie format, signing mechanism and secret
-location, server-side session state, expiry/refresh, logout, CSRF)?
+Per PHASE0_INVESTIGATION.md, there is no password-less login function this
+service can call from its own (unprivileged) process: minting a
+`yunohost.portal` session cookie requires reading
+`/etc/yunohost/.ssowat_cookie_secret` (mode 400, owned `ynh-portal:root`)
+and writing to `/var/cache/yunohost-portal/sessions/` (mode 710, owned
+`ynh-portal:www-data`) - both readable/writable only by the `ynh-portal`
+system user or root, neither of which this daemon should ever run as.
 
-Findings go in PHASE0_INVESTIGATION.md at the repo root. Prefer invoking
-YunoHost's own code; replicating session internals is the fallback.
+So this function does not do the minting itself - it delegates to
+ynh/sessions.py, which invokes a separately-privileged helper running as
+ynh-portal (PLAN.md's "least privilege" instruction). Keeping that call
+behind this module, rather than calling the helper directly from
+server.py, is what lets ynh/permissions.py document and enforce the
+privilege boundary in one place.
 """
 
 from __future__ import annotations
 
+from yunohost_nostr_auth.ynh import sessions as ynh_sessions
+
 
 def create_ynh_session(ynh_username: str):
-    raise NotImplementedError("Blocked on Phase 1 investigation - see PHASE0_INVESTIGATION.md")
+    """Mint a `yunohost.portal` session for an already Nostr-verified user.
+
+    The resulting session's `pwd` claim is an encrypted empty string, not a
+    real LDAP password (we never have one) - profile edits and legacy
+    Basic-Auth-only apps won't work from a Nostr-only session. See
+    PHASE0_INVESTIGATION.md's Conclusions for why that's a permanent
+    limitation of this session design, not a bug here.
+    """
+    return ynh_sessions.mint_session(ynh_username)
