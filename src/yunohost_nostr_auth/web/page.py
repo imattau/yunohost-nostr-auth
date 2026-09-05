@@ -1,8 +1,8 @@
-"""Loads the static `/nostr-login` page (PLAN.md Phase 6/7).
+"""Loads the static `/nostr-login` and `/nostr-account` pages (PLAN.md
+Phase 5/6/7).
 
-The page itself does all the work client-side against this daemon's own
-JSON API (GET /challenge, POST /authenticate) - this module just serves
-the static HTML, once, cached.
+Each page does all its work client-side against this daemon's own JSON
+API - this module just serves the static HTML, once, cached.
 """
 
 from __future__ import annotations
@@ -24,3 +24,8 @@ CONTENT_SECURITY_POLICY = (
 @lru_cache(maxsize=1)
 def render_login_page() -> str:
     return resources.files(__package__).joinpath("nostr_login.html").read_text()
+
+
+@lru_cache(maxsize=1)
+def render_account_page() -> str:
+    return resources.files(__package__).joinpath("nostr_account.html").read_text()

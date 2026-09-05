@@ -145,6 +145,7 @@ def test_identity_endpoint_reports_linked_state(app, client, monkeypatch):
     body = response.json()
     assert body["linked"] is True
     assert body["pubkey"] == "a" * 64
+    assert body["npub"].startswith("npub1")
 
 
 def test_identity_endpoint_unlinked(app, client, monkeypatch):

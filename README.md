@@ -14,8 +14,8 @@ See [PLAN.md](PLAN.md) for the full architecture and phased roadmap.
 
 Phase 1 (session-creation investigation), Phase 2 (the core service:
 challenges, signature verification, identity mapping, linking, and the
-HTTP endpoints), and Phase 6/7 (the standalone `/nostr-login` page,
-NIP-07) are implemented and tested. See
+HTTP endpoints), and Phase 5/6/7's UI (the standalone `/nostr-login` and
+`/nostr-account` pages, NIP-07) are implemented and tested. See
 [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md) for the session-format
 findings this is built against.
 
@@ -64,9 +64,10 @@ src/yunohost_nostr_auth/
         portal_cookie.py        # privileged: reproduces YunoHost's JWT + session-file format
         ldap_lookup.py          # privileged: anonymous LDAP bind for cn/mail lookup
     web/
-        page.py                # loads/caches the static page below, sets its CSP header
-        nostr_login.html        # the actual /nostr-login page - vanilla JS, no build step,
-                                 # talks to GET /challenge and POST /authenticate above
+        page.py                # loads/caches the static pages below, sets their CSP header
+        nostr_login.html        # /nostr-login - sign in with an already-linked identity
+        nostr_account.html      # /nostr-account - link/replace/unlink, for an already
+                                 # password-authenticated session (PLAN.md Phase 5's UI)
 ```
 
 ## Development

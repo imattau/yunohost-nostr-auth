@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nostr Identity</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --muted: #666666;
+    --border: #ddd;
+    --accent: #6b3fa0;
+    --accent-fg: #ffffff;
+    --danger: #a23b3b;
+    --danger-fg: #ffffff;
+    --error-bg: #fdecea;
+    --error-fg: #7a1f1f;
+    --success-bg: #e8f5e9;
+    --success-fg: #1e4620;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a;
+      --card: #232326;
+      --text: #eaeaea;
+      --muted: #9a9a9a;
+      --border: #38383c;
+      --accent: #a685e2;
+      --accent-fg: #17171a;
+      --danger: #d97a7a;
+      --danger-fg: #17171a;
+      --error-bg: #3a1f1f;
+      --error-fg: #f3b4b4;
+      --success-bg: #1c3220;
+      --success-fg: #b6e3bc;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; text-align: center; }
+  p.sub { color: var(--muted); margin: 0 0 24px; font-size: 0.95rem; text-align: center; }
+  dl { margin: 0 0 20px; }
+  dt { font-size: 0.8rem; color: var(--muted); margin-top: 12px; }
+  dd { margin: 2px 0 0; font-size: 0.95rem; word-break: break-all; font-family: ui-monospace, monospace; }
+  .row { display: flex; gap: 10px; margin-top: 8px; }
+  button {
+    flex: 1;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--accent-fg); }
+  button.danger { background: var(--danger); color: var(--danger-fg); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .message {
+    margin-top: 16px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+    text-align: left;
+  }
+  .message.error { display: block; background: var(--error-bg); color: var(--error-fg); }
+  .message.success { display: block; background: var(--success-bg); color: var(--success-fg); }
+  .message.info { display: block; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  a { color: var(--accent); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<noscript>
+  <div class="card">
+    <h1>JavaScript required</h1>
+    <p class="sub">Managing your Nostr identity needs JavaScript enabled, to talk to
+    your browser's Nostr extension. Enable JavaScript and reload this page.</p>
+  </div>
+</noscript>
+
+<div class="card" id="app" hidden>
+  <h1>Nostr Identity</h1>
+  <p class="sub" id="subtitle">Loading…</p>
+
+  <div id="signed-out" hidden>
+    <p>You need to log in to YunoHost with your password first.</p>
+    <div class="row"><button class="primary" id="go-login-btn" type="button">Go to login</button></div>
+  </div>
+
+  <div id="signed-in" hidden>
+    <dl id="linked-info" hidden>
+      <dt>Linked identity (npub)</dt>
+      <dd id="npub-value"></dd>
+      <dt>Linked since</dt>
+      <dd id="created-value"></dd>
+      <dt>Last used</dt>
+      <dd id="last-used-value"></dd>
+    </dl>
+    <p id="unlinked-note" hidden>No Nostr identity is linked to your account yet.</p>
+
+    <div class="row">
+      <button class="primary" id="link-btn" type="button">Link identity</button>
+      <button class="danger" id="unlink-btn" type="button" hidden>Unlink</button>
+    </div>
+  </div>
+
+  <div class="message" id="message"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var app = document.getElementById("app");
+  var subtitle = document.getElementById("subtitle");
+  var signedOut = document.getElementById("signed-out");
+  var signedIn = document.getElementById("signed-in");
+  var linkedInfo = document.getElementById("linked-info");
+  var unlinkedNote = document.getElementById("unlinked-note");
+  var npubValue = document.getElementById("npub-value");
+  var createdValue = document.getElementById("created-value");
+  var lastUsedValue = document.getElementById("last-used-value");
+  var linkBtn = document.getElementById("link-btn");
+  var unlinkBtn = document.getElementById("unlink-btn");
+  var goLoginBtn = document.getElementById("go-login-btn");
+  var messageEl = document.getElementById("message");
+
+  function showMessage(text, kind) {
+    messageEl.textContent = text;
+    messageEl.className = "message " + kind;
+  }
+
+  function clearMessage() {
+    messageEl.textContent = "";
+    messageEl.className = "message";
+  }
+
+  function formatTimestamp(unixSeconds) {
+    if (!unixSeconds) return "never";
+    return new Date(unixSeconds * 1000).toLocaleString();
+  }
+
+  async function fetchJSON(url, options) {
+    var response = await fetch(url, Object.assign({ credentials: "same-origin" }, options || {}));
+    var body = null;
+    try {
+      body = await response.json();
+    } catch (e) {
+      // Non-JSON response - fall through with body = null.
+    }
+    return { ok: response.ok, status: response.status, body: body };
+  }
+
+  function renderIdentity(identity) {
+    signedOut.hidden = true;
+    signedIn.hidden = false;
+
+    if (identity.linked) {
+      subtitle.textContent = "Your account has a linked Nostr identity.";
+      linkedInfo.hidden = false;
+      unlinkedNote.hidden = true;
+      npubValue.textContent = identity.npub;
+      createdValue.textContent = formatTimestamp(identity.created_at);
+      lastUsedValue.textContent = formatTimestamp(identity.last_used);
+      linkBtn.textContent = "Replace identity";
+      unlinkBtn.hidden = false;
+    } else {
+      subtitle.textContent = "Link a Nostr identity to sign in without your password.";
+      linkedInfo.hidden = true;
+      unlinkedNote.hidden = false;
+      linkBtn.textContent = "Link identity";
+      unlinkBtn.hidden = true;
+    }
+  }
+
+  async function loadIdentity() {
+    var result = await fetchJSON("/identity");
+    if (result.status === 401) {
+      subtitle.textContent = "";
+      signedOut.hidden = false;
+      signedIn.hidden = true;
+      return;
+    }
+    if (!result.ok) {
+      showMessage("Could not load your identity status - please reload the page.", "error");
+      return;
+    }
+    renderIdentity(result.body);
+  }
+
+  async function linkIdentity() {
+    clearMessage();
+    if (!window.nostr || typeof window.nostr.signEvent !== "function") {
+      showMessage(
+        "No Nostr browser extension was found. Install one (e.g. Alby, nos2x) and reload this page.",
+        "error"
+      );
+      return;
+    }
+
+    linkBtn.disabled = true;
+    try {
+      var challengeResult = await fetchJSON("/link/challenge", { method: "POST" });
+      if (!challengeResult.ok) {
+        showMessage("Could not start linking - please try again.", "error");
+        return;
+      }
+      var challenge = challengeResult.body;
+
+      var unsignedEvent = {
+        kind: challenge.kind,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ["challenge", challenge.nonce],
+          ["domain", challenge.domain],
+          ["action", challenge.action]
+        ],
+        content: ""
+      };
+
+      var signedEvent;
+      try {
+        signedEvent = await window.nostr.signEvent(unsignedEvent);
+      } catch (signError) {
+        showMessage(
+          "Signature request was rejected, or your Nostr extension is locked.",
+          "error"
+        );
+        return;
+      }
+
+      var linkResult = await fetchJSON("/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: signedEvent })
+      });
+
+      if (linkResult.ok) {
+        showMessage("Identity linked.", "success");
+        await loadIdentity();
+        return;
+      }
+
+      var errorText = (linkResult.body && linkResult.body.error) || "Linking failed - please try again.";
+      showMessage(errorText, "error");
+    } catch (networkError) {
+      showMessage("Could not reach the server. Check your connection and try again.", "error");
+    } finally {
+      linkBtn.disabled = false;
+    }
+  }
+
+  async function unlinkIdentity() {
+    clearMessage();
+    if (!window.confirm("Unlink your Nostr identity? You can link a new one anytime.")) {
+      return;
+    }
+
+    unlinkBtn.disabled = true;
+    try {
+      var result = await fetchJSON("/unlink", { method: "POST" });
+      if (result.ok) {
+        showMessage("Identity unlinked.", "success");
+        await loadIdentity();
+        return;
+      }
+      var errorText = (result.body && result.body.error) || "Unlinking failed - please try again.";
+      showMessage(errorText, "error");
+    } catch (networkError) {
+      showMessage("Could not reach the server. Check your connection and try again.", "error");
+    } finally {
+      unlinkBtn.disabled = false;
+    }
+  }
+
+  linkBtn.addEventListener("click", linkIdentity);
+  unlinkBtn.addEventListener("click", unlinkIdentity);
+  goLoginBtn.addEventListener("click", function () {
+    window.location.href = "/yunohost/sso/";
+  });
+
+  loadIdentity().finally(function () {
+    app.hidden = false;
+  });
+})();
+</script>
+</body>
+</html>
