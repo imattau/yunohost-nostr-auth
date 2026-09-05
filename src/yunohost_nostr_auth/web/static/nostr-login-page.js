@@ -114,7 +114,44 @@
     }
   }
 
+  function hasNip07() {
+    return !!(window.nostr && typeof window.nostr.signEvent === "function");
+  }
+
+  // NIP-07 extensions (Alby, nos2x, ...) commonly inject window.nostr by
+  // inserting a page-context <script> from their content script, which is
+  // NOT guaranteed to finish before this tail-of-body script runs - a
+  // single synchronous check here false-negatives intermittently,
+  // especially on a cold page load. Poll briefly instead of deciding once.
+  function waitForNip07(timeoutMs) {
+    if (hasNip07()) {
+      return Promise.resolve(true);
+    }
+    return new Promise(function (resolve) {
+      var waited = 0;
+      var intervalMs = 100;
+      var timer = setInterval(function () {
+        waited += intervalMs;
+        if (hasNip07()) {
+          clearInterval(timer);
+          resolve(true);
+        } else if (waited >= timeoutMs) {
+          clearInterval(timer);
+          resolve(false);
+        }
+      }, intervalMs);
+    });
+  }
+
   function signInWithNip07() {
+    if (!hasNip07()) {
+      showMessage(
+        "No Nostr browser extension was found. Install one (e.g. Alby, nos2x), " +
+          "use a remote signer below, or use your password on the normal login page.",
+        "error"
+      );
+      return;
+    }
     return performSignIn(function (event) {
       return window.nostr.signEvent(event);
     });
@@ -130,14 +167,20 @@
     }
   }
 
-  if (!window.nostr || typeof window.nostr.signEvent !== "function") {
-    subtitle.textContent =
-      "No Nostr browser extension was found. Install one (e.g. Alby, nos2x), " +
-      "use a remote signer below, or use your password on the normal login page.";
-    button.disabled = true;
-  } else {
-    button.addEventListener("click", signInWithNip07);
-  }
+  // The click handler always re-checks for the extension itself (see
+  // signInWithNip07), so the button is never disabled here - a slow-to-
+  // inject extension (or one that appears after this poll gives up) can
+  // still work on the next click. This poll only drives the informational
+  // subtitle text.
+  button.addEventListener("click", signInWithNip07);
+  waitForNip07(3000).then(function (found) {
+    if (!found) {
+      subtitle.textContent =
+        "No Nostr browser extension detected yet. Install one (e.g. Alby, nos2x) " +
+        "and click Sign in again, use a remote signer below, or use your password " +
+        "on the normal login page.";
+    }
+  });
 
   if (window.NostrConnectUI && window.NostrConnectUI.hasSaved()) {
     reconnectBtn.hidden = false;
