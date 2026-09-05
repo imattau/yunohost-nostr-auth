@@ -94,6 +94,18 @@
       });
 
       if (authResult.ok) {
+        // The portal SPA's own login flow (yunohost-portal's login.vue) sets
+        // this same localStorage flag on success - its route guard
+        // (middleware/auth.global.ts) decides whether to show the portal or
+        // bounce to /login purely by reading it, and never actually checks
+        // the session cookie itself. Since this page lives outside that
+        // Nuxt app, we have to set it ourselves or the portal keeps treating
+        // a perfectly valid, freshly-minted session as logged out - most
+        // visibly right after a previous sign-out, which is what leaves this
+        // flag on "false" in the first place. Confirmed against
+        // yunohost-portal's actual source (composables/states.ts,
+        // middleware/auth.global.ts, pages/login.vue).
+        localStorage.setItem("isLoggedIn", "true");
         window.location.href = "/yunohost/sso/";
         return;
       }
