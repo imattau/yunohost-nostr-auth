@@ -6,19 +6,25 @@ readme = "README.md"
 license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
 dependencies = [
-    "bech32>=1.2.0",
-    "coincurve>=21.0.0",
+    "nostr-sdk>=0.45.1",
     "pydantic>=2.13.5",
     "pydantic-settings>=2.15.0",
     "uvicorn>=0.52.4",
     "starlette>=0.47.0",
+    "pyjwt>=2.13.0",
+    "cryptography>=50.0.1",
 ]
 
 [project.scripts]
 yunohost-nostr-auth = "yunohost_nostr_auth.server:main"
+yunohost-nostr-auth-mint-session = "yunohost_nostr_auth.ynh.mint_session_helper:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dev = [
+    "httpx2>=2.12.0",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+]
 
 [build-system]
 requires = ["hatchling"]

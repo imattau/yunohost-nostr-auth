@@ -102,8 +102,16 @@ This maps onto the module layout already scaffolded:
 - `ynh/sessions.py` — the actual privileged-helper invocation (Phase 2 will add the sudoers rule + helper script here, packaged by `nostr_auth_ynh`'s `scripts/install`).
 - `ynh/permissions.py` — documents/enforces exactly this boundary: what the unprivileged daemon can do vs. what only the `ynh-portal`-privileged helper can do.
 
-## Open items before Phase 2 code is finalized
+## Open items before this ships against a real server
 
-- Confirm on a real YunoHost 12.1.x box that `/etc/yunohost/.ssowat_cookie_secret` and `/var/cache/yunohost-portal/sessions` permissions match what's read from source here.
-- Decide the exact privilege-drop mechanism for the helper (`sudo -u ynh-portal`, a systemd `User=ynh-portal` oneshot unit triggered via a socket, or something else) — a job for early Phase 2, not this doc.
+Phase 2 (this repo's `auth/`, `identity/`, `ynh/` modules, and `server.py`)
+is now implemented and unit-tested against the design above, using
+`sudo -n -u ynh-portal` as the chosen privilege-drop mechanism
+(`ynh/sessions.py` + `ynh/mint_session_helper.py`, packaged by
+`nostr_auth_ynh`'s `conf/sudoers` + `scripts/_common.sh`). None of the
+following has been exercised against a real YunoHost 12 install yet:
+
+- Confirm `/etc/yunohost/.ssowat_cookie_secret` and `/var/cache/yunohost-portal/sessions` permissions match what's read from source here.
+- Confirm the anonymous LDAP bind `ldap_lookup.py` relies on (over `ldapi:///var/run/slapd/ldapi`) actually returns `cn`/`mail` for an arbitrary user when run as `ynh-portal`, not just as `yunohost-portal-api`'s own process - same mechanism, but worth checking slapd's ACLs aren't scoped some other way (e.g. by the calling binary's path).
+- Confirm `sudo -n -u ynh-portal <helper>` actually succeeds from inside `nostr_auth_ynh`'s systemd unit: PAM session setup, syslog, and sudo's own lecture/tty logic can behave differently under a systemd service (no controlling tty) than in a login shell - `-n` should make it fail fast rather than hang if something's wrong, but "fails fast" still needs to be confirmed to mean "succeeds," not "fails fast for a different reason."
 - Track `ldap_ynhuser.py` upstream for changes across YunoHost releases; this whole document is a snapshot of one commit.

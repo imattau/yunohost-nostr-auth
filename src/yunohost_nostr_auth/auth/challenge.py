@@ -41,11 +41,12 @@ class ChallengeStore:
     in-memory dict once the service needs to survive process restarts.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> None:
+        self._ttl_seconds = ttl_seconds
         self._pending: dict[str, Challenge] = {}
 
     def issue(self, domain: str, action: str) -> Challenge:
-        challenge = new_challenge(domain, action)
+        challenge = new_challenge(domain, action, self._ttl_seconds)
         self._pending[challenge.nonce] = challenge
         return challenge
 

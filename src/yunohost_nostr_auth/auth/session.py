@@ -22,8 +22,14 @@ from __future__ import annotations
 from yunohost_nostr_auth.ynh import sessions as ynh_sessions
 
 
-def create_ynh_session(ynh_username: str):
+def create_ynh_session(ynh_username: str, host: str) -> ynh_sessions.MintedSession:
     """Mint a `yunohost.portal` session for an already Nostr-verified user.
+
+    `host` must be the exact `Host` header of the request that reached us
+    (the same value used as the challenge's `domain` claim) - it becomes
+    the session's `host` claim, which YunoHost's own session check
+    (ldap_ynhuser.py's `get_session_cookie`) and SSOwat both compare
+    against the request's actual Host before accepting the cookie.
 
     The resulting session's `pwd` claim is an encrypted empty string, not a
     real LDAP password (we never have one) - profile edits and legacy
@@ -31,4 +37,4 @@ def create_ynh_session(ynh_username: str):
     PHASE0_INVESTIGATION.md's Conclusions for why that's a permanent
     limitation of this session design, not a bug here.
     """
-    return ynh_sessions.mint_session(ynh_username)
+    return ynh_sessions.mint_session(ynh_username, host)

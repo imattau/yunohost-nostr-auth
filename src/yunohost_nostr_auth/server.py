@@ -9,21 +9,233 @@
 
 Runs on localhost only; Nginx (see the nostr_auth_ynh package) provides the
 external route and TLS termination.
+
+Following the CSRF convention PHASE0_INVESTIGATION.md found the real
+YunoHost portal API uses: every POST here must be JSON-bodied
+(`Content-Type: application/json`) - moulinette's own CSRF filter exempts
+JSON POSTs (on the theory that a cross-origin form/fetch can't set that
+content type without a CORS preflight), and there's no reason for our
+POSTs to accept form-encoded bodies at all.
 """
 
 from __future__ import annotations
 
+import json
+import logging
+
 from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
+
+from yunohost_nostr_auth.auth import login, nostr_verify
+from yunohost_nostr_auth.auth.challenge import ChallengeStore
+from yunohost_nostr_auth.config import get_settings
+from yunohost_nostr_auth.identity import linking
+from yunohost_nostr_auth.identity.mappings import MappingStore
+from yunohost_nostr_auth.ynh import portal_client
+from yunohost_nostr_auth.ynh.sessions import SessionMintError
+
+logger = logging.getLogger("yunohost_nostr_auth.server")
+
+LOGIN_ACTION = login.LOGIN_ACTION
+LINK_ACTION = linking.LINK_ACTION
+ALLOWED_ACTIONS = {LOGIN_ACTION, LINK_ACTION}
+
+
+def _require_json(request: Request) -> None:
+    content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if content_type != "application/json":
+        raise _ApiError(415, "Content-Type must be application/json")
+
+
+class _ApiError(Exception):
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+
+
+async def challenge_endpoint(request: Request) -> Response:
+    action = request.query_params.get("action", LOGIN_ACTION)
+    if action not in ALLOWED_ACTIONS:
+        raise _ApiError(400, f"unknown action {action!r}")
+
+    domain = request.headers.get("host")
+    if not domain:
+        raise _ApiError(400, "missing Host header")
+
+    store: ChallengeStore = request.app.state.challenge_store
+    challenge = store.issue(domain=domain, action=action)
+
+    return JSONResponse(
+        {
+            "kind": nostr_verify.CHALLENGE_EVENT_KIND,
+            "nonce": challenge.nonce,
+            "domain": challenge.domain,
+            "action": challenge.action,
+            "issued_at": challenge.issued_at,
+            "expires_at": challenge.expires_at,
+        }
+    )
+
+
+async def authenticate_endpoint(request: Request) -> Response:
+    _require_json(request)
+    body = await request.json()
+    event = body.get("event")
+    if not isinstance(event, dict):
+        raise _ApiError(400, "missing 'event'")
+
+    nonce = nostr_verify.extract_tag_from_raw_event(event, "challenge")
+    challenge_store: ChallengeStore = request.app.state.challenge_store
+    challenge = challenge_store.consume(nonce) if nonce else None
+
+    mappings: MappingStore = request.app.state.mappings
+    try:
+        minted = login.authenticate(mappings, challenge=challenge, event_json=json.dumps(event))
+    except login.LoginError as e:
+        logger.info("nostr login failure: %s", e)
+        raise _ApiError(401, str(e)) from e
+    except SessionMintError as e:
+        logger.error("nostr login: session minting failed: %s", e)
+        raise _ApiError(502, "could not establish a YunoHost session") from e
+
+    logger.info("nostr login success")
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        minted.cookie_name,
+        minted.token,
+        max_age=minted.max_age,
+        path="/",
+        domain=f".{request.headers.get('host')}",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+    return response
+
+
+async def link_challenge_endpoint(request: Request) -> Response:
+    domain = request.headers.get("host")
+    if not domain:
+        raise _ApiError(400, "missing Host header")
+
+    store: ChallengeStore = request.app.state.challenge_store
+    challenge = store.issue(domain=domain, action=LINK_ACTION)
+
+    return JSONResponse(
+        {
+            "kind": nostr_verify.CHALLENGE_EVENT_KIND,
+            "nonce": challenge.nonce,
+            "domain": challenge.domain,
+            "action": challenge.action,
+            "issued_at": challenge.issued_at,
+            "expires_at": challenge.expires_at,
+        }
+    )
+
+
+async def link_endpoint(request: Request) -> Response:
+    _require_json(request)
+    body = await request.json()
+    event = body.get("event")
+    if not isinstance(event, dict):
+        raise _ApiError(400, "missing 'event'")
+
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+
+    nonce = nostr_verify.extract_tag_from_raw_event(event, "challenge")
+    challenge_store: ChallengeStore = request.app.state.challenge_store
+    challenge = challenge_store.consume(nonce) if nonce else None
+
+    settings = get_settings()
+    mappings: MappingStore = request.app.state.mappings
+    try:
+        username = linking.confirm_and_link(
+            mappings,
+            cookie_header=cookie_header,
+            challenge=challenge,
+            event_json=json.dumps(event),
+            portal_api_base_url=settings.portal_api_base_url,
+        )
+    except linking.LinkingError as e:
+        logger.info("identity link failure: %s", e)
+        raise _ApiError(401, str(e)) from e
+
+    logger.info("identity linked")
+    return JSONResponse({"ok": True, "username": username})
+
+
+async def unlink_endpoint(request: Request) -> Response:
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+
+    settings = get_settings()
+    mappings: MappingStore = request.app.state.mappings
+    try:
+        username = linking.confirm_and_unlink(
+            mappings, cookie_header=cookie_header, portal_api_base_url=settings.portal_api_base_url
+        )
+    except linking.LinkingError as e:
+        logger.info("identity unlink failure: %s", e)
+        raise _ApiError(401, str(e)) from e
+
+    logger.info("identity removed")
+    return JSONResponse({"ok": True, "username": username})
+
+
+async def identity_endpoint(request: Request) -> Response:
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+
+    settings = get_settings()
+    try:
+        username = portal_client.get_authenticated_username(
+            cookie_header, base_url=settings.portal_api_base_url
+        )
+    except portal_client.PortalAuthError as e:
+        raise _ApiError(401, str(e)) from e
+
+    mappings: MappingStore = request.app.state.mappings
+    identity = mappings.get_by_username(username)
+    if identity is None:
+        return JSONResponse({"linked": False})
+
+    return JSONResponse(
+        {
+            "linked": True,
+            "pubkey": identity.pubkey,
+            "created_at": identity.created_at,
+            "last_used": identity.last_used,
+        }
+    )
+
+
+async def _api_error_handler(request: Request, exc: _ApiError) -> Response:
+    return JSONResponse({"error": exc.message}, status_code=exc.status_code)
 
 
 def create_app() -> Starlette:
-    # Route handlers land alongside the auth/ and identity/ modules as each
-    # phase in PLAN.md is implemented - kept unimplemented here rather than
-    # stubbed with fake responses, since Phase 1 (YunoHost session creation)
-    # has to be resolved first.
-    routes: list[Route] = []
-    return Starlette(routes=routes)
+    settings = get_settings()
+
+    routes = [
+        Route("/challenge", challenge_endpoint, methods=["GET"]),
+        Route("/authenticate", authenticate_endpoint, methods=["POST"]),
+        Route("/link/challenge", link_challenge_endpoint, methods=["POST"]),
+        Route("/link", link_endpoint, methods=["POST"]),
+        Route("/unlink", unlink_endpoint, methods=["POST"]),
+        Route("/identity", identity_endpoint, methods=["GET"]),
+    ]
+
+    app = Starlette(routes=routes, exception_handlers={_ApiError: _api_error_handler})
+    app.state.challenge_store = ChallengeStore(ttl_seconds=settings.challenge_ttl_seconds)
+    app.state.mappings = MappingStore(settings.mappings_db_path)
+    return app
 
 
 def main() -> None:
