@@ -159,7 +159,7 @@
     if (!hasNip07()) {
       showMessage(
         "No Nostr browser extension was found. Install one (e.g. Alby, nos2x), " +
-          "use a remote signer below, or use your password on the normal login page.",
+          "or use a remote signer below.",
         "error"
       );
       return;
@@ -189,8 +189,7 @@
     if (!found) {
       subtitle.textContent =
         "No Nostr browser extension detected yet. Install one (e.g. Alby, nos2x) " +
-        "and click Sign in again, use a remote signer below, or use your password " +
-        "on the normal login page.";
+        "and click Sign in again, or use a remote signer below.";
     }
   });
 

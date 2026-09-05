@@ -53,6 +53,7 @@
   }
   h1 { font-size: 1.25rem; margin: 0 0 4px; }
   p.sub { color: var(--muted); margin: 0 0 28px; font-size: 0.95rem; }
+  p.sub a { color: var(--accent); }
   button {
     width: 100%;
     padding: 12px 16px;
@@ -123,7 +124,8 @@
     <h1>JavaScript required</h1>
     <p class="sub">Signing in with Nostr needs JavaScript enabled, to talk to your
     browser's Nostr extension or remote signer. Enable JavaScript for this page,
-    or use your regular password on the normal YunoHost login page instead.</p>
+    or <a href="/yunohost/sso/login">use your regular password on the normal
+    YunoHost login page</a> instead.</p>
   </div>
 </noscript>
 
@@ -138,6 +140,10 @@
     Sign in with saved key (this browser)
   </button>
   <div class="message" id="message"></div>
+
+  <p class="sub" style="margin-top:16px">
+    <a href="/yunohost/sso/login">Use your password instead</a>
+  </p>
 
   <details class="remote-signer">
     <summary>Use a remote signer instead (NIP-46)</summary>

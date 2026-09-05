@@ -38,6 +38,33 @@ def test_root_redirects_to_login_page(client):
     assert response.headers["location"] == "/nostr-login"
 
 
+def test_root_redirects_already_logged_in_user_to_portal(client, monkeypatch):
+    monkeypatch.setattr(
+        portal_client, "get_authenticated_username", lambda cookie_header, **kw: "matt"
+    )
+
+    response = client.get(
+        "/", headers={"cookie": "yunohost.portal=whatever"}, follow_redirects=False
+    )
+
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/yunohost/sso/"
+
+
+def test_root_redirects_invalid_cookie_to_login_page(client, monkeypatch):
+    def _reject(cookie_header, **kw):
+        raise portal_client.PortalAuthError("expired")
+
+    monkeypatch.setattr(portal_client, "get_authenticated_username", _reject)
+
+    response = client.get(
+        "/", headers={"cookie": "yunohost.portal=stale"}, follow_redirects=False
+    )
+
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/nostr-login"
+
+
 def test_full_login_flow(app, client, monkeypatch):
     keys = Keys.generate()
     app.state.mappings.link("matt", keys.public_key().to_hex())

@@ -317,6 +317,25 @@ async def root_redirect(request: Request) -> Response:
     # hitting the bare domain sees - with no route for "/" at all, that 404s.
     # Confirmed live: navigating straight to a domain nostr_auth is
     # installed on returns "not found", while /nostr-login itself works.
+    #
+    # Check for an already-valid YunoHost session first (the same check
+    # /identity uses) so a user who's already signed in - via Nostr or
+    # password - lands straight on the portal instead of being sent through
+    # /nostr-login again on every single visit to the bare domain.
+    cookie_header = request.headers.get("cookie")
+    if cookie_header:
+        settings = get_settings()
+        try:
+            portal_client.get_authenticated_username(
+                cookie_header,
+                host=request.headers.get("host", ""),
+                base_url=settings.portal_api_base_url,
+            )
+        except portal_client.PortalAuthError:
+            pass
+        else:
+            return RedirectResponse("/yunohost/sso/")
+
     return RedirectResponse("/nostr-login")
 
 
