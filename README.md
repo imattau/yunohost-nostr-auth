@@ -12,9 +12,10 @@ See [PLAN.md](PLAN.md) for the full architecture and phased roadmap.
 
 ## Status
 
-Phase 1 (session-creation investigation) and Phase 2 (the core service:
+Phase 1 (session-creation investigation), Phase 2 (the core service:
 challenges, signature verification, identity mapping, linking, and the
-HTTP endpoints) are implemented and tested. See
+HTTP endpoints), and Phase 6/7 (the standalone `/nostr-login` page,
+NIP-07) are implemented and tested. See
 [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md) for the session-format
 findings this is built against.
 
@@ -62,6 +63,10 @@ src/yunohost_nostr_auth/
         mint_session_server.py  # privileged (own service, runs as ynh-portal): the socket listener
         portal_cookie.py        # privileged: reproduces YunoHost's JWT + session-file format
         ldap_lookup.py          # privileged: anonymous LDAP bind for cn/mail lookup
+    web/
+        page.py                # loads/caches the static page below, sets its CSP header
+        nostr_login.html        # the actual /nostr-login page - vanilla JS, no build step,
+                                 # talks to GET /challenge and POST /authenticate above
 ```
 
 ## Development
@@ -83,4 +88,10 @@ Existing YunoHost user "matt" has linked pubkey X
 → app recognises "matt"
 ```
 
-without modifying SSOwat or replacing core YunoHost files.
+without modifying SSOwat or replacing core YunoHost files. Every step up
+through "arrive at normal YunoHost portal" is now built and verified (the
+`/nostr-login` page's JS wiring in a real browser with a simulated NIP-07
+extension; the actual challenge/sign/authenticate/session-mint chain
+against a real YunoHost 12 install - see the Status section above). What's
+untested is the very last step: an actual NIP-07 extension in a real
+browser, end to end, against a real linked account.

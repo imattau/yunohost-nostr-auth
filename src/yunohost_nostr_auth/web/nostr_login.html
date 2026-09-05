@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in with Nostr</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --muted: #666666;
+    --border: #ddd;
+    --accent: #6b3fa0;
+    --accent-fg: #ffffff;
+    --error-bg: #fdecea;
+    --error-fg: #7a1f1f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a;
+      --card: #232326;
+      --text: #eaeaea;
+      --muted: #9a9a9a;
+      --border: #38383c;
+      --accent: #a685e2;
+      --accent-fg: #17171a;
+      --error-bg: #3a1f1f;
+      --error-fg: #f3b4b4;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  .card {
+    width: 100%;
+    max-width: 380px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+  }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0 0 28px; font-size: 0.95rem; }
+  button {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: none;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .message {
+    margin-top: 16px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+    text-align: left;
+  }
+  .message.error { display: block; background: var(--error-bg); color: var(--error-fg); }
+  .message.info { display: block; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
+  a { color: var(--accent); }
+  noscript .card { max-width: 420px; }
+</style>
+</head>
+<body>
+<noscript>
+  <div class="card">
+    <h1>JavaScript required</h1>
+    <p class="sub">Signing in with Nostr needs JavaScript enabled, to talk to your
+    browser's Nostr extension. Enable JavaScript for this page, or use your
+    regular password on the normal YunoHost login page instead.</p>
+  </div>
+</noscript>
+
+<div class="card" id="app" hidden>
+  <h1>Sign in with Nostr</h1>
+  <p class="sub" id="subtitle">Approve a signature request from your Nostr extension.</p>
+  <button id="signin-btn" type="button">Sign in with Nostr</button>
+  <div class="message" id="message"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var app = document.getElementById("app");
+  var button = document.getElementById("signin-btn");
+  var subtitle = document.getElementById("subtitle");
+  var messageEl = document.getElementById("message");
+
+  function showMessage(text, kind) {
+    messageEl.textContent = text;
+    messageEl.className = "message " + kind;
+  }
+
+  function clearMessage() {
+    messageEl.textContent = "";
+    messageEl.className = "message";
+  }
+
+  function setBusy(busy) {
+    button.disabled = busy;
+    button.textContent = busy ? "Waiting for signature…" : "Sign in with Nostr";
+  }
+
+  async function fetchJSON(url, options) {
+    var response = await fetch(url, options);
+    var body = null;
+    try {
+      body = await response.json();
+    } catch (e) {
+      // Non-JSON response - fall through with body = null.
+    }
+    return { ok: response.ok, status: response.status, body: body };
+  }
+
+  async function signIn() {
+    clearMessage();
+    setBusy(true);
+
+    try {
+      var challengeResult = await fetchJSON("/challenge");
+      if (!challengeResult.ok) {
+        showMessage("Could not start sign-in - please try again.", "error");
+        return;
+      }
+      var challenge = challengeResult.body;
+
+      var unsignedEvent = {
+        kind: challenge.kind,
+        created_at: Math.floor(Date.now() / 1000),
+        tags: [
+          ["challenge", challenge.nonce],
+          ["domain", challenge.domain],
+          ["action", challenge.action]
+        ],
+        content: ""
+      };
+
+      var signedEvent;
+      try {
+        signedEvent = await window.nostr.signEvent(unsignedEvent);
+      } catch (signError) {
+        showMessage(
+          "Signature request was rejected, or your Nostr extension is locked.",
+          "error"
+        );
+        return;
+      }
+
+      var authResult = await fetchJSON("/authenticate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event: signedEvent })
+      });
+
+      if (authResult.ok) {
+        window.location.href = "/yunohost/sso/";
+        return;
+      }
+
+      var errorText =
+        (authResult.body && authResult.body.error) ||
+        "Sign-in failed. The challenge may have expired - try again.";
+      showMessage(errorText, "error");
+    } catch (networkError) {
+      showMessage(
+        "Could not reach the server. Check your connection and try again.",
+        "error"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!window.nostr || typeof window.nostr.signEvent !== "function") {
+    subtitle.textContent =
+      "No Nostr browser extension was found. Install one (e.g. Alby, nos2x) " +
+      "and reload this page, or use your password on the normal login page.";
+    button.disabled = true;
+  } else {
+    button.addEventListener("click", signIn);
+  }
+
+  app.hidden = false;
+})();
+</script>
+</body>
+</html>

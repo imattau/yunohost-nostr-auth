@@ -7,6 +7,10 @@
     POST /unlink
     GET  /identity
 
+...plus the standalone login page from Phase 6/7:
+
+    GET  /nostr-login
+
 Runs on localhost only; Nginx (see the nostr_auth_ynh package) provides the
 external route and TLS termination.
 
@@ -25,7 +29,7 @@ import logging
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from yunohost_nostr_auth.auth import login, nostr_verify
@@ -33,6 +37,7 @@ from yunohost_nostr_auth.auth.challenge import ChallengeStore
 from yunohost_nostr_auth.config import get_settings
 from yunohost_nostr_auth.identity import linking
 from yunohost_nostr_auth.identity.mappings import MappingStore
+from yunohost_nostr_auth.web.page import CONTENT_SECURITY_POLICY, render_login_page
 from yunohost_nostr_auth.ynh import portal_client
 from yunohost_nostr_auth.ynh.sessions import SessionMintError
 
@@ -220,6 +225,10 @@ async def identity_endpoint(request: Request) -> Response:
     )
 
 
+async def nostr_login_page(request: Request) -> Response:
+    return HTMLResponse(render_login_page(), headers={"Content-Security-Policy": CONTENT_SECURITY_POLICY})
+
+
 async def _api_error_handler(request: Request, exc: _ApiError) -> Response:
     return JSONResponse({"error": exc.message}, status_code=exc.status_code)
 
@@ -228,6 +237,7 @@ def create_app() -> Starlette:
     settings = get_settings()
 
     routes = [
+        Route("/nostr-login", nostr_login_page, methods=["GET"]),
         Route("/challenge", challenge_endpoint, methods=["GET"]),
         Route("/authenticate", authenticate_endpoint, methods=["POST"]),
         Route("/link/challenge", link_challenge_endpoint, methods=["POST"]),
