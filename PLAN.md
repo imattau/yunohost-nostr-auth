@@ -158,6 +158,15 @@ Do not use `npub` internally. Decode it at the UI boundary and store the canonic
 
 ## Phase 5: Secure account linking
 
+**Status: complete.** Link/replace/unlink implemented and tested (`identity/linking.py`,
+`/link/challenge`, `/link`, `/unlink`, `/identity`), with the `/nostr-account` UI covering
+all three actions plus the rest of the profile surface this phase implies: viewing the
+linked npub/NIP-05 identifier, a "Saved on this device" panel for managing a saved NIP-46
+bunker session or locally-generated key independently of a full unlink, and a client-side
+"generate a new key pair" flow for linking without an existing Nostr identity. See
+README.md's Status section for the verification detail (real signature checks against a
+live YunoHost install, and a browser-verified unlink correctly clearing saved signer state).
+
 Never let an arbitrary Nostr pubkey claim an existing account.
 
 Initial linking should require an already authenticated YunoHost session:
