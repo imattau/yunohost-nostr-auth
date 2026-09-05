@@ -198,6 +198,34 @@ user exactly) - so the anonymous-LDAP-bind assumption is now confirmed,
 not just theorized. Service logs showed a clean
 `POST /authenticate HTTP/1.1" 200 OK` with no errors.
 
+## `Content-Security-Policy` from an app's own response is silently overridden (2026-09-05)
+
+While verifying Phase 10's NIP-46 work, `curl -D -` against a real install
+showed `/nostr-login`'s `Content-Security-Policy` header as just
+`upgrade-insecure-requests` - not the full policy `web/page.py` sets in
+Python. Checking a *different*, unrelated app on the same server (`armada`)
+showed the exact same truncated value, which ruled out a bug in our own
+`conf/nginx.conf` and confirmed this is a YunoHost-wide behavior: nginx's
+own baseline security config (`security.conf.inc`, included in every app's
+server block) sets `Content-Security-Policy: upgrade-insecure-requests`
+via `more_set_headers` - and `more_set_headers` *replaces* a header of the
+same name rather than merging with it, including one already present on
+the proxied backend's response. So any app's own CSP header, set from
+its application code, is discarded outright before reaching the browser.
+
+The stock YunoHost portal itself isn't affected only because it sets its
+CSP via its *own* `more_set_headers` directly inside `yunohost_admin.conf`
+- a more specific nginx context than the server-level baseline, so nginx
+takes that value instead. The fix for any app (including this one) that
+needs a real CSP is the same: assert it via `more_set_headers` in the
+app's own `conf/nginx.conf` location block, not from the application's
+own response headers - nginx-level config is the only layer that can
+actually win against `security.conf.inc`'s baseline. `nostr_auth_ynh`'s
+`conf/nginx.conf` now does this; `web/page.py`'s Python-level header is
+kept too (it's what `uv run pytest`'s test suite and any non-YunoHost
+deployment actually see), but on a real YunoHost install the nginx-level
+one is what matters.
+
 ## Open items
 
 - Track `ldap_ynhuser.py` upstream for changes across YunoHost releases; this whole document is a snapshot of one commit.
