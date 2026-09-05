@@ -157,6 +157,7 @@ async def link_endpoint(request: Request) -> Response:
         username = linking.confirm_and_link(
             mappings,
             cookie_header=cookie_header,
+            host=request.headers.get("host", ""),
             challenge=challenge,
             event_json=json.dumps(event),
             portal_api_base_url=settings.portal_api_base_url,
@@ -178,7 +179,10 @@ async def unlink_endpoint(request: Request) -> Response:
     mappings: MappingStore = request.app.state.mappings
     try:
         username = linking.confirm_and_unlink(
-            mappings, cookie_header=cookie_header, portal_api_base_url=settings.portal_api_base_url
+            mappings,
+            cookie_header=cookie_header,
+            host=request.headers.get("host", ""),
+            portal_api_base_url=settings.portal_api_base_url,
         )
     except linking.LinkingError as e:
         logger.info("identity unlink failure: %s", e)
@@ -196,7 +200,7 @@ async def identity_endpoint(request: Request) -> Response:
     settings = get_settings()
     try:
         username = portal_client.get_authenticated_username(
-            cookie_header, base_url=settings.portal_api_base_url
+            cookie_header, host=request.headers.get("host", ""), base_url=settings.portal_api_base_url
         )
     except portal_client.PortalAuthError as e:
         raise _ApiError(401, str(e)) from e

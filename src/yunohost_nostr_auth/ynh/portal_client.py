@@ -31,6 +31,7 @@ class PortalAuthError(Exception):
 def get_authenticated_username(
     cookie_header: str,
     *,
+    host: str,
     base_url: str = "http://127.0.0.1:6788",
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
@@ -38,13 +39,22 @@ def get_authenticated_username(
     (the exact `Cookie` request header value received from the browser,
     e.g. `"yunohost.portal=<jwt>"`).
 
+    `host` must be the original request's `Host` header (the domain the
+    browser actually used) - ldap_ynhuser.py's `get_session_cookie()`
+    rejects the session outright if the cookie's `host` claim doesn't
+    match the request's `Host` header (PHASE0_INVESTIGATION.md), and
+    without setting it explicitly here, urllib sends `127.0.0.1:6788` (the
+    literal address we're connecting to) instead - confirmed on a real
+    install, where every session was rejected with a 401 until this was
+    added.
+
     Raises PortalAuthError if portal-api rejects the cookie (expired,
     forged, wrong domain, ...) or can't be reached at all - callers must
     treat both the same way: refuse the linking/unlinking action.
     """
     request = urllib.request.Request(
         f"{base_url}/me",
-        headers={"Cookie": cookie_header, "Accept": "application/json"},
+        headers={"Cookie": cookie_header, "Accept": "application/json", "Host": host},
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

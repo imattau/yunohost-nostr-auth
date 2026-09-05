@@ -45,6 +45,7 @@ def test_confirm_and_link_creates_mapping(store, monkeypatch):
     username = linking.confirm_and_link(
         store,
         cookie_header="yunohost.portal=whatever",
+        host=DOMAIN,
         challenge=challenge,
         event_json=_signed_event(keys, challenge),
     )
@@ -61,6 +62,7 @@ def test_confirm_and_link_requires_a_challenge(store, monkeypatch):
         linking.confirm_and_link(
             store,
             cookie_header="yunohost.portal=whatever",
+            host=DOMAIN,
             challenge=None,
             event_json=_signed_event(keys, _link_challenge()),
         )
@@ -77,6 +79,7 @@ def test_confirm_and_link_rejects_wrong_action_challenge(store, monkeypatch):
         linking.confirm_and_link(
             store,
             cookie_header="yunohost.portal=whatever",
+            host=DOMAIN,
             challenge=login_challenge,
             event_json=_signed_event(keys, login_challenge),
         )
@@ -94,6 +97,7 @@ def test_confirm_and_link_rejects_unauthenticated_session(store, monkeypatch):
         linking.confirm_and_link(
             store,
             cookie_header="yunohost.portal=bad",
+            host=DOMAIN,
             challenge=challenge,
             event_json=_signed_event(keys, challenge),
         )
@@ -115,6 +119,7 @@ def test_confirm_and_link_rejects_forged_signature(store, monkeypatch):
         linking.confirm_and_link(
             store,
             cookie_header="yunohost.portal=whatever",
+            host=DOMAIN,
             challenge=challenge,
             event_json=json.dumps(raw),
         )
@@ -124,7 +129,7 @@ def test_confirm_and_unlink(store, monkeypatch):
     store.link("matt", "a" * 64)
     _fake_authenticated_as(monkeypatch, "matt")
 
-    username = linking.confirm_and_unlink(store, cookie_header="yunohost.portal=whatever")
+    username = linking.confirm_and_unlink(store, cookie_header="yunohost.portal=whatever", host=DOMAIN)
 
     assert username == "matt"
     assert store.get_by_username("matt") is None
@@ -137,4 +142,4 @@ def test_confirm_and_unlink_rejects_unauthenticated_session(store, monkeypatch):
     monkeypatch.setattr(portal_client, "get_authenticated_username", _raise)
 
     with pytest.raises(linking.LinkingError, match="not currently logged in"):
-        linking.confirm_and_unlink(store, cookie_header="yunohost.portal=bad")
+        linking.confirm_and_unlink(store, cookie_header="yunohost.portal=bad", host=DOMAIN)

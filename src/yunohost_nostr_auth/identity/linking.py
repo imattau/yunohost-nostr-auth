@@ -32,11 +32,16 @@ def confirm_and_link(
     store: MappingStore,
     *,
     cookie_header: str,
+    host: str,
     challenge: Challenge | None,
     event_json: str,
     portal_api_base_url: str = "http://127.0.0.1:6788",
 ) -> str:
     """Verify both requirements above and record the mapping.
+
+    `host` must be the original request's `Host` header - see
+    ynh/portal_client.py's docstring for why it has to be forwarded
+    explicitly rather than left to default.
 
     `challenge` must be the already-`consume()`d Challenge matching the
     nonce the client signed (callers look it up by the event's `challenge`
@@ -50,7 +55,7 @@ def confirm_and_link(
 
     try:
         username = portal_client.get_authenticated_username(
-            cookie_header, base_url=portal_api_base_url
+            cookie_header, host=host, base_url=portal_api_base_url
         )
     except portal_client.PortalAuthError as e:
         raise LinkingError(f"not currently logged in to YunoHost: {e}") from e
@@ -75,6 +80,7 @@ def confirm_and_unlink(
     store: MappingStore,
     *,
     cookie_header: str,
+    host: str,
     portal_api_base_url: str = "http://127.0.0.1:6788",
 ) -> str:
     """Unlink whichever identity belongs to the session in `cookie_header`.
@@ -86,7 +92,7 @@ def confirm_and_unlink(
     """
     try:
         username = portal_client.get_authenticated_username(
-            cookie_header, base_url=portal_api_base_url
+            cookie_header, host=host, base_url=portal_api_base_url
         )
     except portal_client.PortalAuthError as e:
         raise LinkingError(f"not currently logged in to YunoHost: {e}") from e
