@@ -14,6 +14,12 @@ The add-on should let an existing YunoHost user authenticate using a linked Nost
 
 ## Phase 1: Architecture and proof of concept
 
+**Status: complete.** The session-creation investigation this phase calls for is
+documented in `PHASE0_INVESTIGATION.md` (cookie format, signing mechanism, LDAP
+relationship, and the four real bugs found getting a genuine session minted), and
+the full loop below is verified end-to-end against a real YunoHost 12 install -
+see README.md's Status section.
+
 Start with the smallest possible working loop:
 
 ```text
@@ -50,6 +56,13 @@ The critical technical question is session creation. Before building anything su
 Prefer invoking YunoHost's own session-creation code. Replicating session internals should be the fallback.
 
 ## Phase 2: Core `yunohost-nostr-auth` service
+
+**Status: complete.** All six endpoints below are implemented in `server.py`
+(a Starlette ASGI app) with the exact module layout this phase asks for, running
+on localhost only behind nostr_auth_ynh's nginx. The service runs as its own
+restricted system user with no general root access - see `ynh/permissions.py`
+and PHASE0_INVESTIGATION.md's "privilege-drop redesign" for how session-minting
+privilege is scoped down to just that.
 
 Build a small local daemon, preferably Python or Go.
 
@@ -88,6 +101,14 @@ Do not give the Nostr service general root access. Give it only the permissions 
 
 ## Phase 3: Challenge authentication
 
+**Status: complete.** Every check below is implemented and tested:
+`auth/challenge.py` issues CSPRNG (`secrets.token_urlsafe`), single-use,
+expiring (default 90s, within the 30-120s window Phase 13 asks for) challenges
+bound to a domain and action; `auth/nostr_verify.py` verifies the Schnorr
+signature and NIP-01 structure via `nostr-sdk`, then checks the challenge/
+domain/action tags and a created_at window against replay. Challenges are
+consumed atomically by nonce before the signed event is ever checked.
+
 Use a cryptographically random, short-lived, single-use challenge.
 
 Authentication data should bind at least:
@@ -125,6 +146,13 @@ Checks must include:
 Consume the challenge atomically after successful authentication.
 
 ## Phase 4: Identity mapping
+
+**Status: complete.** `identity/mappings.py` is a SQLite-backed store with
+exactly the schema below (`ynh_username`, `pubkey`, `created_at`, `last_used`,
+`enabled`), one pubkey per user. LDAP is untouched - see Phase 15/16 for where
+that might eventually change. `npub` is decoded/encoded only at the UI
+boundary (`identity/npub.py`); everywhere else, including the DB, stores the
+canonical hex pubkey.
 
 Initially avoid modifying the YunoHost LDAP schema.
 
@@ -202,6 +230,11 @@ Replacing or removing a key should require current YunoHost authentication.
 
 ## Phase 6: Separate login page
 
+**Status: complete.** `/nostr-login` implements exactly this flow, including
+the final `/yunohost/sso/` redirect on success, plus (beyond this phase's
+original scope) NIP-46 and saved-locally-generated-key sign-in alongside
+NIP-07 - see Phase 10 and README.md's Status section.
+
 Avoid changing the stock YunoHost portal initially.
 
 Expose something like:
@@ -234,6 +267,13 @@ This proves the backend integration before touching portal assets.
 
 ## Phase 7: NIP-07 support
 
+**Status: complete.** Both `/nostr-login` and `/nostr-account` use
+`window.nostr.signEvent`, and every listed edge case is handled explicitly in
+their JS: no extension installed, a rejected signature request, an expired
+challenge (surfaced as a server error message), a malformed/network failure,
+and a `<noscript>` fallback for JavaScript disabled. The private key is never
+requested or touched by this codebase - only `getPublicKey`/`signEvent`.
+
 Implement NIP-07 first because it gives the simplest browser workflow:
 
 ```javascript
@@ -254,6 +294,17 @@ Handle cleanly:
 Do not request access to the user's private key.
 
 ## Phase 8: YunoHost package
+
+**Status: complete.** `nostr_auth_ynh` has this exact layout (plus `doc/`,
+`conf/f2b_*`-generating fail2ban wiring, and a `conf/cron` self-heal - see
+Phase 9 and 13). Every responsibility below is handled: a dedicated restricted
+system user, SQLite DB preserved across upgrade via `resources.data_dir`,
+systemd + nginx configuration, SSOwat permissions, the `/nostr-login` URL,
+and clean removal - install/upgrade/remove all repeatedly verified against a
+real YunoHost 12 server this session. `scripts/backup`, `restore`, and
+`change_url` are provided but haven't specifically been live-tested the same
+way (unlike install/upgrade/remove, no session-long verification loop
+exercised them yet).
 
 Build:
 
@@ -290,6 +341,14 @@ Avoid modifying generated YunoHost files.
 
 ## Phase 9: Portal integration
 
+**Status: complete.** A "Login with Nostr" link is injected into the portal
+via `nostr_auth_install_portal_patch`/`nostr_auth_remove_portal_patch` (a
+single, idempotent, re-runnable function per this phase's requirement),
+applied on install/upgrade and self-healed every 30 minutes via `conf/cron` +
+`reapply-portal-patch.sh` for the "YunoHost upgrade silently reverts it" case
+that has no clean core hook. Password login remains fully available
+alongside it.
+
 Once the standalone route works reliably, add:
 
 ```text
@@ -313,6 +372,16 @@ Do not fork the whole portal.
 Password login remains available.
 
 ## Phase 10: NIP-46
+
+**Status: complete.** `bunker://` paste and a `nostrconnect://` QR flow are
+implemented on both pages, backed by a vendored `nostr-tools` bundle (see
+`vendor/nostr-connect/`), with connection metadata saved in `localStorage`
+(now independently manageable/forgettable - Phase 5) and a signer timeout.
+Verified with a real, unfaked NIP-46 handshake against a throwaway local
+relay and a "fake remote signer" script - see README.md's Status section for
+the one narrow thing that verification couldn't cover (the hardcoded default
+relays' reachability from this sandbox specifically, not from a real
+browser).
 
 After NIP-07 is stable, add remote signing.
 
