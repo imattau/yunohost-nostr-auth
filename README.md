@@ -102,12 +102,22 @@ through nostr_auth_ynh's own nginx, never directly) to a dedicated file a
 `nostr_auth_ynh` fail2ban jail watches, rather than reimplementing IP
 banning here. See that repo for the jail/systemd wiring.
 
+`admin_cli.py` adds a second, admin-authority linking path alongside the
+self-service one: `yunohost-nostr-auth-admin link/unlink/list`, reached via
+`nostr_auth_ynh`'s config-panel actions rather than a route on this
+service - binds a pubkey to an account without requiring a live signature
+from it, for provisioning an account for an agent/bot using an npub it
+reports itself. See `docs/mcp-integration.md` for how this relates to
+yunohost-mcp's separate pubkey→role/scope model.
+
 ## Layout
 
 ```text
 src/yunohost_nostr_auth/
     server.py              # the ASGI app: GET/POST routes wiring everything below together
     config.py              # NOSTR_AUTH_* environment settings
+    admin_cli.py           # yunohost-nostr-auth-admin: admin-provisioned link/unlink/list,
+                            # reached via nostr_auth_ynh's config-panel actions, not HTTP
     auth/
         challenge.py       # issue/consume single-use, domain+action-bound challenges
         nostr_verify.py    # NIP-01 event verification (via nostr-sdk) + challenge binding

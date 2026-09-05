@@ -30,3 +30,16 @@ def hex_to_npub(pubkey_hex: str) -> str:
         return PublicKey.parse(pubkey_hex).to_bech32()
     except Exception as e:
         raise ValueError(f"not a valid hex pubkey: {e}") from e
+
+
+def parse_to_hex(value: str) -> str:
+    """Accept either an npub or a raw hex pubkey and return canonical hex.
+
+    For admin_cli.py (PLAN.md Phase 14/5's admin-provisioned linking): an
+    admin pasting in an agent-reported public key shouldn't have to know or
+    care which form it's in.
+    """
+    try:
+        return PublicKey.parse(value).to_hex()
+    except Exception as e:
+        raise ValueError(f"not a valid npub or hex pubkey: {e}") from e

@@ -195,7 +195,22 @@ bunker session or locally-generated key independently of a full unlink, and a cl
 README.md's Status section for the verification detail (real signature checks against a
 live YunoHost install, and a browser-verified unlink correctly clearing saved signer state).
 
-Never let an arbitrary Nostr pubkey claim an existing account.
+Also adds a deliberate second linking mode alongside the self-service one above:
+admin-provisioned linking, for binding a pubkey to an account without a live signature
+proving possession of it - the situation "never let an arbitrary Nostr pubkey claim an
+existing account" doesn't cover, since here an admin is knowingly vouching for the pubkey
+themselves (e.g. provisioning a YunoHost account for an agent using an npub it reports
+itself, where there's no browser in the loop to sign a linking challenge). `admin_cli.py`
+(new `yunohost-nostr-auth-admin` console script: `link`/`unlink`/`list`, talking straight
+to the same SQLite mapping DB) is reached only via nostr_auth_ynh's config-panel actions -
+see that repo's `config_panel.toml`/`scripts/config` - which is itself only reachable by
+someone who can already administer the YunoHost server, so no separate authentication
+happens in admin_cli.py itself. See `docs/mcp-integration.md` for how this relates to (and
+stays deliberately separate from) yunohost-mcp's own pubkey→role/scope model for agents
+that only need API access and no real YunoHost account at all.
+
+Never let an arbitrary Nostr pubkey claim an existing account without going through
+one of these two explicit, deliberate paths.
 
 Initial linking should require an already authenticated YunoHost session:
 
