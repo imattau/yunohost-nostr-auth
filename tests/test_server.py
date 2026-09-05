@@ -144,6 +144,7 @@ def test_identity_endpoint_reports_linked_state(app, client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["linked"] is True
+    assert body["username"] == "matt"
     assert body["pubkey"] == "a" * 64
     assert body["npub"].startswith("npub1")
 

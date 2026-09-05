@@ -58,6 +58,30 @@ internet from Node (confirmed: real relays work fine from the *browser*,
 just not from the Node-based test signer), so that specific combination
 wants a live check before relying on it.
 
+The `/nostr-account` page also covers the rest of the user-profile surface
+PLAN.md's Phase 5 left open: a "Saved on this device" panel lists whichever
+of the NIP-46 bunker session / locally-generated key is currently saved in
+this browser, each independently "Forget"-able without a full unlink;
+unlinking now also clears both of those (previously a stale saved signer
+could survive a server-side unlink); and a "Generate a new key pair" flow
+lets someone without a Nostr identity yet create one entirely client-side
+(never sent anywhere), with the raw key persisted in `localStorage` only if
+they explicitly opt in via checkbox - unconditionally persisting it would
+be the same risk class as storing a password there. `/nostr-login` gained
+a matching "Sign in with saved key" button for that opt-in case. Separately,
+`GET /.well-known/nostr.json?name=<username>` exposes a linked identity as
+a standard NIP-05 identifier (`<username>@<domain>`) for use by any Nostr
+client or other app - not just other apps on the same YunoHost server -
+without touching LDAP (PLAN.md Phase 4 deliberately deferred that);
+strictly opt-in-by-linking and exact-name-only, never lists all linked
+users. All of the above verified in a real browser against a locally run
+instance of the service (mocked YunoHost portal auth, real crypto): keypair
+generation → reveal/copy/remember → link → genuine signature verified
+server-side; unlink → both `localStorage` keys confirmed cleared; saved-key
+sign-in → real challenge signed and posted to `/authenticate`, correctly
+accepted once linked and rejected while unlinked; NIP-05 endpoint resolves
+the linked pubkey.
+
 ## Layout
 
 ```text
@@ -83,7 +107,9 @@ src/yunohost_nostr_auth/
     web/
         page.py                # loads/caches the static pages/assets below, sets CSP
         nostr_login.html        # /nostr-login - sign in with an already-linked identity
-        nostr_account.html      # /nostr-account - link/replace/unlink, for an already
+                                 # (extension, NIP-46, or a saved locally-generated key)
+        nostr_account.html      # /nostr-account - link/replace/unlink, generate a keypair,
+                                 # and manage saved-signer state, for an already
                                  # password-authenticated session (PLAN.md Phase 5's UI)
         static/
             nostr-connect-vendor.js  # vendored nostr-tools NIP-46 client (Phase 10) - see

@@ -60,10 +60,11 @@
   }
   h1 { font-size: 1.25rem; margin: 0 0 4px; text-align: center; }
   p.sub { color: var(--muted); margin: 0 0 24px; font-size: 0.95rem; text-align: center; }
+  p.hint { color: var(--muted); margin: 0 0 8px; font-size: 0.8rem; text-align: left; }
   dl { margin: 0 0 20px; }
   dt { font-size: 0.8rem; color: var(--muted); margin-top: 12px; }
   dd { margin: 2px 0 0; font-size: 0.95rem; word-break: break-all; font-family: ui-monospace, monospace; }
-  .row { display: flex; gap: 10px; margin-top: 8px; }
+  .row { display: flex; gap: 10px; margin-top: 8px; align-items: center; }
   button {
     flex: 1;
     padding: 12px 16px;
@@ -97,6 +98,8 @@
   a { color: var(--accent); }
   [hidden] { display: none !important; }
 
+  .section-divider { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
   details.remote-signer { margin-top: 20px; text-align: left; }
   details.remote-signer summary {
     cursor: pointer;
@@ -126,6 +129,17 @@
     word-break: break-all;
     color: var(--muted);
   }
+
+  .saved-row { font-size: 0.85rem; color: var(--muted); }
+  .saved-row button { flex: none; padding: 8px 12px; font-size: 0.85rem; }
+
+  .key-value {
+    font-family: ui-monospace, monospace;
+    font-size: 0.85rem;
+    word-break: break-all;
+    margin: 2px 0 10px;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -151,6 +165,8 @@
     <dl id="linked-info" hidden>
       <dt>Linked identity (npub)</dt>
       <dd id="npub-value"></dd>
+      <dt>NIP-05 identifier</dt>
+      <dd id="nip05-value"></dd>
       <dt>Linked since</dt>
       <dd id="created-value"></dd>
       <dt>Last used</dt>
@@ -182,6 +198,57 @@
         </div>
       </div>
     </details>
+
+    <details class="remote-signer">
+      <summary>Don't have a Nostr identity? Generate one</summary>
+      <div class="remote-signer-body">
+        <p class="hint">
+          This creates a key pair in your browser. For anything beyond quick
+          testing, import it into a real Nostr extension or signer app rather
+          than relying on this page to remember it for you.
+        </p>
+        <div class="row"><button id="generate-btn" type="button" class="secondary">Generate a new key pair</button></div>
+
+        <div id="generated-key-box" hidden style="margin-top:14px">
+          <dt style="font-size:0.8rem;color:var(--muted)">Public key (npub) - safe to share</dt>
+          <dd id="generated-npub" class="key-value"></dd>
+          <dt style="font-size:0.8rem;color:var(--muted)">
+            Private key (nsec) - keep this secret
+          </dt>
+          <dd id="generated-nsec" class="key-value" title="Click to reveal/hide"></dd>
+          <div class="row">
+            <button id="reveal-nsec-btn" type="button" class="secondary">Reveal</button>
+            <button id="copy-nsec-btn" type="button" class="secondary">Copy</button>
+          </div>
+          <p class="hint" style="margin-top:12px">
+            Copy this key into a Nostr extension or signer app now - it is not
+            sent anywhere, and won't be stored here unless you check the box below.
+          </p>
+          <label class="row" style="align-items:flex-start">
+            <input type="checkbox" id="remember-key-checkbox" style="margin-top:3px;flex:none;width:auto">
+            <span class="hint" style="margin:0">
+              Remember this key in this browser so I can sign in without an
+              extension (stored unencrypted here - less secure).
+            </span>
+          </label>
+          <div class="row">
+            <button id="use-generated-key-btn" type="button" class="primary">Link this identity</button>
+          </div>
+        </div>
+      </div>
+    </details>
+
+    <div id="saved-signers-panel" class="section-divider" hidden>
+      <p class="hint">Saved on this device:</p>
+      <div id="saved-bunker-row" class="row saved-row" hidden>
+        <span style="flex:1">Remote signer at <span id="saved-bunker-relay"></span></span>
+        <button id="forget-bunker-btn" type="button" class="secondary">Forget</button>
+      </div>
+      <div id="saved-local-key-row" class="row saved-row" hidden>
+        <span style="flex:1">Locally generated key</span>
+        <button id="forget-local-key-btn" type="button" class="secondary">Forget</button>
+      </div>
+    </div>
   </div>
 
   <div class="message" id="message"></div>
@@ -200,6 +267,7 @@
   var linkedInfo = document.getElementById("linked-info");
   var unlinkedNote = document.getElementById("unlinked-note");
   var npubValue = document.getElementById("npub-value");
+  var nip05Value = document.getElementById("nip05-value");
   var createdValue = document.getElementById("created-value");
   var lastUsedValue = document.getElementById("last-used-value");
   var linkBtn = document.getElementById("link-btn");
@@ -213,6 +281,24 @@
   var qrImage = document.getElementById("qr-image");
   var qrUriText = document.getElementById("qr-uri-text");
   var qrCancelBtn = document.getElementById("qr-cancel-btn");
+  var generateBtn = document.getElementById("generate-btn");
+  var generatedKeyBox = document.getElementById("generated-key-box");
+  var generatedNpub = document.getElementById("generated-npub");
+  var generatedNsec = document.getElementById("generated-nsec");
+  var revealNsecBtn = document.getElementById("reveal-nsec-btn");
+  var copyNsecBtn = document.getElementById("copy-nsec-btn");
+  var rememberKeyCheckbox = document.getElementById("remember-key-checkbox");
+  var useGeneratedKeyBtn = document.getElementById("use-generated-key-btn");
+  var savedSignersPanel = document.getElementById("saved-signers-panel");
+  var savedBunkerRow = document.getElementById("saved-bunker-row");
+  var savedBunkerRelay = document.getElementById("saved-bunker-relay");
+  var savedLocalKeyRow = document.getElementById("saved-local-key-row");
+  var forgetBunkerBtn = document.getElementById("forget-bunker-btn");
+  var forgetLocalKeyBtn = document.getElementById("forget-local-key-btn");
+
+  var NSEC_MASK = "•".repeat(63);
+  var generatedKeypair = null;
+  var nsecRevealed = false;
 
   function showMessage(text, kind) {
     messageEl.textContent = text;
@@ -240,6 +326,17 @@
     return { ok: response.ok, status: response.status, body: body };
   }
 
+  function renderSavedSigners() {
+    var bunkerInfo = window.NostrConnectUI.getSavedInfo();
+    var hasLocal = window.NostrConnectUI.hasLocalKey();
+    savedSignersPanel.hidden = !bunkerInfo && !hasLocal;
+    savedBunkerRow.hidden = !bunkerInfo;
+    if (bunkerInfo) {
+      savedBunkerRelay.textContent = bunkerInfo.relays.join(", ");
+    }
+    savedLocalKeyRow.hidden = !hasLocal;
+  }
+
   function renderIdentity(identity) {
     signedOut.hidden = true;
     signedIn.hidden = false;
@@ -249,6 +346,7 @@
       linkedInfo.hidden = false;
       unlinkedNote.hidden = true;
       npubValue.textContent = identity.npub;
+      nip05Value.textContent = identity.username + "@" + window.location.hostname;
       createdValue.textContent = formatTimestamp(identity.created_at);
       lastUsedValue.textContent = formatTimestamp(identity.last_used);
       linkBtn.textContent = "Replace identity";
@@ -275,6 +373,7 @@
       return;
     }
     renderIdentity(result.body);
+    renderSavedSigners();
   }
 
   function setLinkButtonsDisabled(disabled) {
@@ -282,12 +381,15 @@
     bunkerConnectBtn.disabled = disabled;
     bunkerInput.disabled = disabled;
     qrShowBtn.disabled = disabled;
+    generateBtn.disabled = disabled;
+    useGeneratedKeyBtn.disabled = disabled;
   }
 
-  // Shared by NIP-07 and every NIP-46 connection path: once we have a
-  // signEvent(unsignedEvent) function, the rest of the linking flow is
-  // identical (PLAN.md: "NIP-07 and NIP-46 should ultimately feed the
-  // same verification pipeline").
+  // Shared by NIP-07 and every NIP-46/local-key connection path: once we
+  // have a signEvent(unsignedEvent) function, the rest of the linking flow
+  // is identical (PLAN.md: "NIP-07 and NIP-46 should ultimately feed the
+  // same verification pipeline" - a locally-generated key is just another
+  // kind of signer by the same logic).
   async function performLink(signEventFn) {
     clearMessage();
     setLinkButtonsDisabled(true);
@@ -330,6 +432,8 @@
 
       if (linkResult.ok) {
         showMessage("Identity linked.", "success");
+        generatedKeyBox.hidden = true;
+        generatedKeypair = null;
         await loadIdentity();
         return;
       }
@@ -364,6 +468,7 @@
       });
     } finally {
       signer.close();
+      renderSavedSigners();
     }
   }
 
@@ -377,6 +482,12 @@
     try {
       var result = await fetchJSON("/unlink", { method: "POST" });
       if (result.ok) {
+        // A saved signer (NIP-46 or a locally-generated key) represents a
+        // way to sign in/link as the identity we just unlinked - leaving
+        // it behind would let "reconnect" on /nostr-login silently target
+        // an account that no longer has this pubkey linked.
+        window.NostrConnectUI.clearAllSaved();
+        renderSavedSigners();
         showMessage("Identity unlinked.", "success");
         await loadIdentity();
         return;
@@ -444,6 +555,57 @@
   qrCancelBtn.addEventListener("click", function () {
     if (qrAbortController) qrAbortController.abort();
     qrBox.hidden = true;
+  });
+
+  generateBtn.addEventListener("click", function () {
+    clearMessage();
+    generatedKeypair = window.NostrConnectUI.generateLocalKeypair();
+    nsecRevealed = false;
+    generatedNpub.textContent = generatedKeypair.npub;
+    generatedNsec.textContent = NSEC_MASK;
+    revealNsecBtn.textContent = "Reveal";
+    rememberKeyCheckbox.checked = false;
+    generatedKeyBox.hidden = false;
+  });
+
+  revealNsecBtn.addEventListener("click", function () {
+    if (!generatedKeypair) return;
+    nsecRevealed = !nsecRevealed;
+    generatedNsec.textContent = nsecRevealed ? generatedKeypair.nsec : NSEC_MASK;
+    revealNsecBtn.textContent = nsecRevealed ? "Hide" : "Reveal";
+  });
+
+  generatedNsec.addEventListener("click", function () {
+    revealNsecBtn.click();
+  });
+
+  copyNsecBtn.addEventListener("click", async function () {
+    if (!generatedKeypair) return;
+    try {
+      await navigator.clipboard.writeText(generatedKeypair.nsec);
+      showMessage("Private key copied to clipboard.", "success");
+    } catch (e) {
+      showMessage("Could not copy automatically - click Reveal and copy it manually.", "error");
+    }
+  });
+
+  useGeneratedKeyBtn.addEventListener("click", async function () {
+    if (!generatedKeypair) return;
+    if (rememberKeyCheckbox.checked) {
+      window.NostrConnectUI.saveLocalKey(generatedKeypair.secretKeyHex);
+    }
+    var signer = window.NostrConnectUI.createLocalSigner(generatedKeypair.secretKeyHex);
+    await linkWithSigner(signer);
+  });
+
+  forgetBunkerBtn.addEventListener("click", function () {
+    window.NostrConnectUI.clearSaved();
+    renderSavedSigners();
+  });
+
+  forgetLocalKeyBtn.addEventListener("click", function () {
+    window.NostrConnectUI.clearLocalKey();
+    renderSavedSigners();
   });
 
   loadIdentity().finally(function () {

@@ -134,6 +134,9 @@
   <button id="reconnect-btn" type="button" class="secondary" style="margin-top:10px" hidden>
     Sign in with saved remote signer
   </button>
+  <button id="local-key-btn" type="button" class="secondary" style="margin-top:10px" hidden>
+    Sign in with saved key (this browser)
+  </button>
   <div class="message" id="message"></div>
 
   <details class="remote-signer">
@@ -166,6 +169,7 @@
   var app = document.getElementById("app");
   var button = document.getElementById("signin-btn");
   var reconnectBtn = document.getElementById("reconnect-btn");
+  var localKeyBtn = document.getElementById("local-key-btn");
   var subtitle = document.getElementById("subtitle");
   var messageEl = document.getElementById("message");
   var bunkerInput = document.getElementById("bunker-input");
@@ -191,6 +195,7 @@
   function setAllButtonsDisabled(disabled) {
     button.disabled = disabled;
     reconnectBtn.disabled = disabled;
+    localKeyBtn.disabled = disabled;
     bunkerConnectBtn.disabled = disabled;
     bunkerInput.disabled = disabled;
     qrShowBtn.disabled = disabled;
@@ -318,6 +323,19 @@
       } finally {
         setAllButtonsDisabled(false);
       }
+    });
+  }
+
+  if (window.NostrConnectUI && window.NostrConnectUI.hasLocalKey()) {
+    localKeyBtn.hidden = false;
+    localKeyBtn.addEventListener("click", async function () {
+      clearMessage();
+      var signer = window.NostrConnectUI.loadLocalSigner();
+      if (!signer) {
+        showMessage("No saved key found.", "error");
+        return;
+      }
+      await signInWithSigner(signer);
     });
   }
 

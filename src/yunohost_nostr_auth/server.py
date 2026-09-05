@@ -15,6 +15,10 @@
     GET  /static/nostr-connect-vendor.js  - vendored nostr-tools NIP-46 client (Phase 10)
     GET  /static/nostr-connect-ui.js      - shared NIP-46 UI glue for the two pages above
 
+...plus NIP-05, for exposing a linked identity outside YunoHost entirely:
+
+    GET  /.well-known/nostr.json
+
 Runs on localhost only; Nginx (see the nostr_auth_ynh package) provides the
 external route and TLS termination.
 
@@ -228,12 +232,40 @@ async def identity_endpoint(request: Request) -> Response:
     return JSONResponse(
         {
             "linked": True,
+            "username": username,
             "pubkey": identity.pubkey,
             "npub": npub.hex_to_npub(identity.pubkey),
             "created_at": identity.created_at,
             "last_used": identity.last_used,
         }
     )
+
+
+async def nostr_json_endpoint(request: Request) -> Response:
+    """NIP-05: https://<domain>/.well-known/nostr.json?name=<username>
+
+    The one way this project exposes a linked identity for use *outside*
+    YunoHost entirely - any Nostr client, not just other apps on this
+    server - without touching LDAP or anything else PLAN.md's Phase 4
+    deliberately deferred. Only ever reveals a mapping for a username that
+    has actually linked a pubkey (opt-in by definition of having linked
+    one at all) and only when queried by that exact name, matching how
+    every other NIP-05 provider behaves - this never lists all linked
+    users at once.
+    """
+    name = request.query_params.get("name")
+    names: dict[str, str] = {}
+
+    if name:
+        mappings: MappingStore = request.app.state.mappings
+        identity = mappings.get_by_username(name)
+        if identity is not None and identity.enabled:
+            names[name] = identity.pubkey
+
+    # NIP-05 verification happens from an arbitrary Nostr client's own
+    # origin, so this - unlike every other route here - has to be
+    # readable cross-origin.
+    return JSONResponse({"names": names}, headers={"Access-Control-Allow-Origin": "*"})
 
 
 async def nostr_login_page(request: Request) -> Response:
@@ -270,6 +302,7 @@ def create_app() -> Starlette:
         Route("/link", link_endpoint, methods=["POST"]),
         Route("/unlink", unlink_endpoint, methods=["POST"]),
         Route("/identity", identity_endpoint, methods=["GET"]),
+        Route("/.well-known/nostr.json", nostr_json_endpoint, methods=["GET"]),
     ]
 
     app = Starlette(routes=routes, exception_handlers={_ApiError: _api_error_handler})
