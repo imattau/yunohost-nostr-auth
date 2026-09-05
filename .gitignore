@@ -9,3 +9,5 @@ build/
 *.db
 *.db-journal
 uv.lock.bak
+vendor/nostr-connect/node_modules/
+vendor/nostr-connect/package-lock.json

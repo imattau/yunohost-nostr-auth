@@ -41,6 +41,23 @@ decoded-and-checked `Set-Cookie: yunohost.portal=...` whose `email`/
 what broke and got fixed along the way (there were four real bugs, not
 zero) and what's still open.
 
+Phase 10 (NIP-46 remote signing - `bunker://` paste and a `nostrconnect://`
+QR flow) is also implemented, on both pages, backed by a vendored
+`nostr-tools` bundle (see `vendor/nostr-connect/`). Verified with a real,
+unfaked NIP-46 handshake against a throwaway local relay and a small
+"fake remote signer" script (both using `nostr-tools`' own primitives,
+neither shipped): a genuinely `verifyEvent()`-valid signed event round-
+tripped through the actual `BunkerSigner` client for both the `bunker://`
+and `nostrconnect://` flows, and separately, both production pages'
+own button-wiring was confirmed to correctly reach `/authenticate`/`/link`
+using a mocked signer. The one thing *not* verified end-to-end is
+`connectViaQr`'s hardcoded default relays (`relay.nsec.app`,
+`relay.damus.io`) actually round-tripping a real signer connection - this
+session's sandbox can't make outbound WebSocket connections to the public
+internet from Node (confirmed: real relays work fine from the *browser*,
+just not from the Node-based test signer), so that specific combination
+wants a live check before relying on it.
+
 ## Layout
 
 ```text
@@ -64,10 +81,16 @@ src/yunohost_nostr_auth/
         portal_cookie.py        # privileged: reproduces YunoHost's JWT + session-file format
         ldap_lookup.py          # privileged: anonymous LDAP bind for cn/mail lookup
     web/
-        page.py                # loads/caches the static pages below, sets their CSP header
+        page.py                # loads/caches the static pages/assets below, sets CSP
         nostr_login.html        # /nostr-login - sign in with an already-linked identity
         nostr_account.html      # /nostr-account - link/replace/unlink, for an already
                                  # password-authenticated session (PLAN.md Phase 5's UI)
+        static/
+            nostr-connect-vendor.js  # vendored nostr-tools NIP-46 client (Phase 10) - see
+                                      # vendor/nostr-connect/ for the build recipe
+            nostr-connect-ui.js       # shared bunker://+QR+localStorage glue for both pages
+
+vendor/nostr-connect/    # the (not shipped) build recipe for nostr-connect-vendor.js
 ```
 
 ## Development

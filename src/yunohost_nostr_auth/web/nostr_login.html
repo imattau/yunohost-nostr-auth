@@ -65,6 +65,13 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 500;
+    font-size: 0.9rem;
+  }
   .message {
     margin-top: 16px;
     padding: 10px 14px;
@@ -77,6 +84,37 @@
   .message.info { display: block; background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
   a { color: var(--accent); }
   noscript .card { max-width: 420px; }
+
+  details.remote-signer { margin-top: 20px; text-align: left; }
+  details.remote-signer summary {
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .remote-signer-body { margin-top: 14px; }
+  .remote-signer-body .row { display: flex; gap: 8px; margin-top: 8px; }
+  .remote-signer-body input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 0.9rem;
+  }
+  .remote-signer-body button { width: auto; padding: 10px 14px; font-size: 0.9rem; }
+  .qr-box { text-align: center; margin-top: 12px; }
+  .qr-box img { max-width: 200px; border-radius: 8px; border: 1px solid var(--border); }
+  .qr-uri {
+    margin-top: 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    word-break: break-all;
+    color: var(--muted);
+  }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -84,8 +122,8 @@
   <div class="card">
     <h1>JavaScript required</h1>
     <p class="sub">Signing in with Nostr needs JavaScript enabled, to talk to your
-    browser's Nostr extension. Enable JavaScript for this page, or use your
-    regular password on the normal YunoHost login page instead.</p>
+    browser's Nostr extension or remote signer. Enable JavaScript for this page,
+    or use your regular password on the normal YunoHost login page instead.</p>
   </div>
 </noscript>
 
@@ -93,17 +131,52 @@
   <h1>Sign in with Nostr</h1>
   <p class="sub" id="subtitle">Approve a signature request from your Nostr extension.</p>
   <button id="signin-btn" type="button">Sign in with Nostr</button>
+  <button id="reconnect-btn" type="button" class="secondary" style="margin-top:10px" hidden>
+    Sign in with saved remote signer
+  </button>
   <div class="message" id="message"></div>
+
+  <details class="remote-signer">
+    <summary>Use a remote signer instead (NIP-46)</summary>
+    <div class="remote-signer-body">
+      <p class="sub" style="margin-bottom:8px">
+        Paste a connection link from your signer app (e.g. Amber, nsec.app):
+      </p>
+      <div class="row">
+        <input type="text" id="bunker-input" placeholder="bunker://... or name@domain">
+        <button id="bunker-connect-btn" type="button">Connect</button>
+      </div>
+      <p class="sub" style="margin:14px 0 8px">Or scan a QR code with your signer app:</p>
+      <button id="qr-show-btn" type="button" class="secondary">Show QR code</button>
+      <div class="qr-box" id="qr-box" hidden>
+        <img id="qr-image" alt="Scan with your Nostr signer app">
+        <div class="qr-uri" id="qr-uri-text"></div>
+        <button id="qr-cancel-btn" type="button" class="secondary" style="margin-top:10px">Cancel</button>
+      </div>
+    </div>
+  </details>
 </div>
 
+<script src="/static/nostr-connect-vendor.js"></script>
+<script src="/static/nostr-connect-ui.js"></script>
 <script>
 (function () {
   "use strict";
 
   var app = document.getElementById("app");
   var button = document.getElementById("signin-btn");
+  var reconnectBtn = document.getElementById("reconnect-btn");
   var subtitle = document.getElementById("subtitle");
   var messageEl = document.getElementById("message");
+  var bunkerInput = document.getElementById("bunker-input");
+  var bunkerConnectBtn = document.getElementById("bunker-connect-btn");
+  var qrShowBtn = document.getElementById("qr-show-btn");
+  var qrBox = document.getElementById("qr-box");
+  var qrImage = document.getElementById("qr-image");
+  var qrUriText = document.getElementById("qr-uri-text");
+  var qrCancelBtn = document.getElementById("qr-cancel-btn");
+
+  var activeSigner = null;
 
   function showMessage(text, kind) {
     messageEl.textContent = text;
@@ -115,9 +188,12 @@
     messageEl.className = "message";
   }
 
-  function setBusy(busy) {
-    button.disabled = busy;
-    button.textContent = busy ? "Waiting for signature…" : "Sign in with Nostr";
+  function setAllButtonsDisabled(disabled) {
+    button.disabled = disabled;
+    reconnectBtn.disabled = disabled;
+    bunkerConnectBtn.disabled = disabled;
+    bunkerInput.disabled = disabled;
+    qrShowBtn.disabled = disabled;
   }
 
   async function fetchJSON(url, options) {
@@ -131,9 +207,15 @@
     return { ok: response.ok, status: response.status, body: body };
   }
 
-  async function signIn() {
+  // Shared by NIP-07 and every NIP-46 connection path: once we have a
+  // signEvent(unsignedEvent) function - whichever kind of signer it came
+  // from - the rest of the login flow is identical (PLAN.md: "NIP-07 and
+  // NIP-46 should ultimately feed the same verification pipeline").
+  async function performSignIn(signEventFn, busyLabel) {
     clearMessage();
-    setBusy(true);
+    setAllButtonsDisabled(true);
+    var originalText = button.textContent;
+    button.textContent = busyLabel || "Waiting for signature…";
 
     try {
       var challengeResult = await fetchJSON("/challenge");
@@ -156,10 +238,10 @@
 
       var signedEvent;
       try {
-        signedEvent = await window.nostr.signEvent(unsignedEvent);
+        signedEvent = await signEventFn(unsignedEvent);
       } catch (signError) {
         showMessage(
-          "Signature request was rejected, or your Nostr extension is locked.",
+          "Signature request was rejected, or your signer is unavailable.",
           "error"
         );
         return;
@@ -186,18 +268,116 @@
         "error"
       );
     } finally {
-      setBusy(false);
+      setAllButtonsDisabled(false);
+      button.textContent = originalText;
+      qrBox.hidden = true;
+    }
+  }
+
+  function signInWithNip07() {
+    return performSignIn(function (event) {
+      return window.nostr.signEvent(event);
+    });
+  }
+
+  async function signInWithSigner(signer) {
+    try {
+      await performSignIn(function (event) {
+        return signer.signEvent(event);
+      });
+    } finally {
+      signer.close();
     }
   }
 
   if (!window.nostr || typeof window.nostr.signEvent !== "function") {
     subtitle.textContent =
-      "No Nostr browser extension was found. Install one (e.g. Alby, nos2x) " +
-      "and reload this page, or use your password on the normal login page.";
+      "No Nostr browser extension was found. Install one (e.g. Alby, nos2x), " +
+      "use a remote signer below, or use your password on the normal login page.";
     button.disabled = true;
   } else {
-    button.addEventListener("click", signIn);
+    button.addEventListener("click", signInWithNip07);
   }
+
+  if (window.NostrConnectUI && window.NostrConnectUI.hasSaved()) {
+    reconnectBtn.hidden = false;
+    reconnectBtn.addEventListener("click", async function () {
+      clearMessage();
+      setAllButtonsDisabled(true);
+      try {
+        var signer = await window.NostrConnectUI.reconnectSaved();
+        if (!signer) {
+          showMessage("No saved signer found.", "error");
+          return;
+        }
+        await signInWithSigner(signer);
+      } catch (e) {
+        showMessage("Could not reconnect to your saved signer. Try connecting again below.", "error");
+        window.NostrConnectUI.clearSaved();
+        reconnectBtn.hidden = true;
+      } finally {
+        setAllButtonsDisabled(false);
+      }
+    });
+  }
+
+  bunkerConnectBtn.addEventListener("click", async function () {
+    clearMessage();
+    var value = bunkerInput.value.trim();
+    if (!value) {
+      showMessage("Paste a bunker:// link or NIP-05 signer address first.", "error");
+      return;
+    }
+    setAllButtonsDisabled(true);
+    bunkerConnectBtn.textContent = "Connecting…";
+    try {
+      var signer = await window.NostrConnectUI.connectViaBunkerUri(value);
+      await signInWithSigner(signer);
+    } catch (e) {
+      showMessage(e.message || "Could not connect to that signer.", "error");
+    } finally {
+      setAllButtonsDisabled(false);
+      bunkerConnectBtn.textContent = "Connect";
+    }
+  });
+
+  var qrAbortController = null;
+
+  qrShowBtn.addEventListener("click", async function () {
+    clearMessage();
+    qrAbortController = new AbortController();
+    qrBox.hidden = false;
+    qrShowBtn.disabled = true;
+    button.disabled = true;
+    bunkerConnectBtn.disabled = true;
+    reconnectBtn.disabled = true;
+    var wasAborted = false;
+    try {
+      var signer = await window.NostrConnectUI.connectViaQr(function (uri, dataUrl) {
+        qrImage.src = dataUrl;
+        qrUriText.textContent = uri;
+      }, qrAbortController.signal);
+      qrBox.hidden = true;
+      await signInWithSigner(signer);
+    } catch (e) {
+      wasAborted = qrAbortController.signal.aborted;
+      if (!wasAborted) {
+        showMessage("The connection request timed out or was not approved.", "error");
+      }
+    } finally {
+      qrBox.hidden = true;
+      qrShowBtn.disabled = false;
+      button.disabled = false;
+      bunkerConnectBtn.disabled = false;
+      reconnectBtn.disabled = window.NostrConnectUI && !window.NostrConnectUI.hasSaved();
+      qrAbortController = null;
+    }
+  });
+
+  qrCancelBtn.addEventListener("click", function () {
+    if (qrAbortController) qrAbortController.abort();
+    qrBox.hidden = true;
+  });
 
   app.hidden = false;
 })();

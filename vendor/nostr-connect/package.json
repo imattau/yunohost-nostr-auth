@@ -1,0 +1,13 @@
+{
+  "name": "nostr-connect-vendor-build",
+  "private": true,
+  "description": "Build recipe for web/static/nostr-connect-vendor.js - not shipped, not part of the Python package.",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --target=es2020 --outfile=../../src/yunohost_nostr_auth/web/static/nostr-connect-vendor.js"
+  },
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "nostr-tools": "^2.25.2",
+    "qrcode": "^1.5.4"
+  }
+}

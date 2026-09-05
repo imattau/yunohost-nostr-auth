@@ -12,6 +12,8 @@
     GET  /nostr-login    - sign in with an already-linked identity
     GET  /nostr-account  - link/replace/unlink, for an already
                             password-authenticated YunoHost session
+    GET  /static/nostr-connect-vendor.js  - vendored nostr-tools NIP-46 client (Phase 10)
+    GET  /static/nostr-connect-ui.js      - shared NIP-46 UI glue for the two pages above
 
 Runs on localhost only; Nginx (see the nostr_auth_ynh package) provides the
 external route and TLS termination.
@@ -41,6 +43,8 @@ from yunohost_nostr_auth.identity import linking, npub
 from yunohost_nostr_auth.identity.mappings import MappingStore
 from yunohost_nostr_auth.web.page import (
     CONTENT_SECURITY_POLICY,
+    content_type_for_static_asset,
+    read_static_asset,
     render_account_page,
     render_login_page,
 )
@@ -240,6 +244,15 @@ async def nostr_account_page(request: Request) -> Response:
     return HTMLResponse(render_account_page(), headers={"Content-Security-Policy": CONTENT_SECURITY_POLICY})
 
 
+async def static_asset(request: Request) -> Response:
+    filename = request.path_params["filename"]
+    try:
+        content_type = content_type_for_static_asset(filename)
+    except KeyError:
+        raise _ApiError(404, "not found") from None
+    return Response(read_static_asset(filename), media_type=content_type)
+
+
 async def _api_error_handler(request: Request, exc: _ApiError) -> Response:
     return JSONResponse({"error": exc.message}, status_code=exc.status_code)
 
@@ -250,6 +263,7 @@ def create_app() -> Starlette:
     routes = [
         Route("/nostr-login", nostr_login_page, methods=["GET"]),
         Route("/nostr-account", nostr_account_page, methods=["GET"]),
+        Route("/static/{filename}", static_asset, methods=["GET"]),
         Route("/challenge", challenge_endpoint, methods=["GET"]),
         Route("/authenticate", authenticate_endpoint, methods=["POST"]),
         Route("/link/challenge", link_challenge_endpoint, methods=["POST"]),
