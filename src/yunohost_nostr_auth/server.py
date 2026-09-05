@@ -37,7 +37,7 @@ import logging
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
 from yunohost_nostr_auth.auth import login, nostr_verify
@@ -309,10 +309,22 @@ async def _api_error_handler(request: Request, exc: _ApiError) -> Response:
     return JSONResponse({"error": exc.message}, status_code=exc.status_code)
 
 
+async def root_redirect(request: Request) -> Response:
+    # This app has no permission.main.path setting (packaging_format 2's
+    # single install.domain question always installs it at the domain's
+    # root, "/"), so unlike apps installed under a subpath, its own
+    # /nostr-login etc. routes don't automatically "fill in" what a visitor
+    # hitting the bare domain sees - with no route for "/" at all, that 404s.
+    # Confirmed live: navigating straight to a domain nostr_auth is
+    # installed on returns "not found", while /nostr-login itself works.
+    return RedirectResponse("/nostr-login")
+
+
 def create_app() -> Starlette:
     settings = get_settings()
 
     routes = [
+        Route("/", root_redirect, methods=["GET"]),
         Route("/nostr-login", nostr_login_page, methods=["GET"]),
         Route("/nostr-account", nostr_account_page, methods=["GET"]),
         Route("/static/{filename}", static_asset, methods=["GET"]),

@@ -32,6 +32,12 @@ def client(app):
     return TestClient(app, base_url=f"http://{DOMAIN}")
 
 
+def test_root_redirects_to_login_page(client):
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/nostr-login"
+
+
 def test_full_login_flow(app, client, monkeypatch):
     keys = Keys.generate()
     app.state.mappings.link("matt", keys.public_key().to_hex())
