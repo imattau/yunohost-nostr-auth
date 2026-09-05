@@ -21,19 +21,24 @@ findings this is built against.
 Short version of the one architectural wrinkle: there is no password-less
 login function YunoHost exposes, and minting a `yunohost.portal` session
 requires the privileges of the `ynh-portal` system user. Verified live
-against a real (containerized) YunoHost 12 install: a `sudo`-spawned-per-
-request helper doesn't work there at all (the container sets the kernel's
-`no_new_privs` bit, which permanently blocks any privilege escalation via
-`sudo`/setuid). Session minting instead runs as its own always-running
-`ynh-portal`-owned systemd service (`ynh/mint_session_server.py`), talked
-to over a Unix socket authenticated by `SO_PEERCRED` - a privilege *drop*
-by systemd-as-root at service start, not a *gain* by the daemon itself, so
-it isn't affected by that restriction. `/link` (real password login →
-cookie → our linking logic) is confirmed working end-to-end on a live
-install; `/authenticate` against this new socket design is implemented and
-unit-tested but its own live re-verification was cut short by an unrelated
-connection outage - see [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md)'s
-open items.
+against a real (possibly containerized) YunoHost 12 install: a
+`sudo`-spawned-per-request helper doesn't work there at all (something
+sets the kernel's `no_new_privs` bit, which permanently blocks any
+privilege escalation via `sudo`/setuid). Session minting instead runs as
+its own always-running `ynh-portal`-owned systemd service
+(`ynh/mint_session_server.py`), talked to over a Unix socket authenticated
+by `SO_PEERCRED` - a privilege *drop* by systemd-as-root at service start,
+not a *gain* by the daemon itself, so it isn't affected by that
+restriction.
+
+**The full login and linking flow is now verified end-to-end on a real
+install**: real password login → our `/link/challenge` → sign → `/link` →
+`200`, then `/challenge` → sign → `/authenticate` → `200` with a real,
+decoded-and-checked `Set-Cookie: yunohost.portal=...` whose `email`/
+`fullname` came from a genuine anonymous LDAP lookup. See
+[`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md) for the full trail of
+what broke and got fixed along the way (there were four real bugs, not
+zero) and what's still open.
 
 ## Layout
 

@@ -171,13 +171,34 @@ the first test install ended up shadowing the main domain's root path -
 install on a dedicated subdomain, not the main domain, next time).
 `/authenticate`'s socket-based mint path is implemented and unit-tested
 (`tests/test_mint_session_server.py`, `tests/test_sessions.py`) but the
-live re-verification of the *new* socket design specifically was cut short
-by an unrelated MCP connection outage - that's the one remaining
-open item below.
+live re-verification of the *new* socket design hit one more real bug
+before it could complete:
+
+4. **`install_dir`'s default permissions block `ynh-portal` entirely.**
+   `nostr_auth-mint-session.service` (`User=ynh-portal`) failed to even
+   start: `systemd[1]: nostr_auth-mint-session.service: Failed to execute
+   .../venv/bin/yunohost-nostr-auth-mint-session-server: Permission
+   denied` (`code=exited, status=203/EXEC`). YunoHost's `install_dir`
+   resource defaults `group` to `__APP__:rx` - only the app's *own* system
+   user/group can read or traverse it. `ynh-portal` is a completely
+   different system user, so it couldn't even traverse into
+   `/var/www/nostr_auth/`, let alone execute anything inside it. Fixed by
+   overriding `resources.install_dir.group = "ynh-portal:rx"` in the
+   manifest - a narrow read+execute grant to one already-trusted system
+   account, not a general loosening (`install_dir` holds only source/venv,
+   no secrets).
+
+With that fixed, the full flow was re-verified live, end-to-end, on a
+fresh install: `/link/challenge` → sign → `/link` → `200`, then
+`/challenge` → sign → `/authenticate` → **`200` with a real
+`Set-Cookie: yunohost.portal=...`**. Decoding that JWT confirmed
+`email`/`fullname` came from a genuine LDAP lookup
+(`nostrtest@lostcause.nohost.me` / `Nostr Auth Test`, matching the test
+user exactly) - so the anonymous-LDAP-bind assumption is now confirmed,
+not just theorized. Service logs showed a clean
+`POST /authenticate HTTP/1.1" 200 OK` with no errors.
 
 ## Open items
 
-- Re-verify `/authenticate` live against the socket-based `mint_session_server.py` end-to-end (confirmed working through `/link`; the redesign itself is unit-tested but not yet exercised live) - the actual anonymous-LDAP-bind assumption below rides on this.
-- Confirm the anonymous LDAP bind `ldap_lookup.py` relies on (over `ldapi:///var/run/slapd/ldapi`) actually returns `cn`/`mail` for an arbitrary user when run as `ynh-portal`.
-- Confirm `mint_session_server.py`'s socket, under `RuntimeDirectory=` + `ProtectSystem=strict` on both services, is actually reachable cross-service the way `nostr_auth_ynh`'s unit files assume (connecting to an existing socket shouldn't need write access to its directory, but this is exactly the kind of assumption Phase 1 already got wrong twice above).
 - Track `ldap_ynhuser.py` upstream for changes across YunoHost releases; this whole document is a snapshot of one commit.
+- The full flow is now verified end-to-end on one real install (`lostcause.nohost.me`, bare-metal amd64, possibly still containerized at the OS level per the `no_new_privs` finding above - "bare-metal" in YunoHost's own diagnostics describes the underlying hardware, not whether an LXC/systemd-nspawn layer sits between it and this app). Re-confirming on a genuinely different install (different host, different container setup or none at all) would rule out anything specific to this one box that hasn't surfaced yet.
