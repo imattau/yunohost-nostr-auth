@@ -47,14 +47,14 @@ def test_admin_page_served_with_csp(client):
 
 
 def test_admin_session_reports_unauthenticated_without_cookie(client):
-    response = client.get("/admin/api/session")
+    response = client.get("/nostr-admin/api/session")
     assert response.status_code == 200
     assert response.json() == {"authenticated": False, "is_admin": False}
 
 
 def test_admin_session_reports_non_admin(client, monkeypatch):
     _as_non_admin(monkeypatch)
-    response = client.get("/admin/api/session", headers={"cookie": COOKIE})
+    response = client.get("/nostr-admin/api/session", headers={"cookie": COOKIE})
     assert response.status_code == 200
     body = response.json()
     assert body["authenticated"] is True
@@ -63,18 +63,18 @@ def test_admin_session_reports_non_admin(client, monkeypatch):
 
 def test_admin_session_reports_admin(client, monkeypatch):
     _as_admin(monkeypatch)
-    response = client.get("/admin/api/session", headers={"cookie": COOKIE})
+    response = client.get("/nostr-admin/api/session", headers={"cookie": COOKIE})
     assert response.json() == {"authenticated": True, "is_admin": True, "username": "root-admin"}
 
 
 def test_admin_endpoints_reject_non_admin(client, monkeypatch):
     _as_non_admin(monkeypatch)
-    response = client.get("/admin/api/identities", headers={"cookie": COOKIE})
+    response = client.get("/nostr-admin/api/identities", headers={"cookie": COOKIE})
     assert response.status_code == 403
 
 
 def test_admin_endpoints_reject_missing_cookie(client):
-    response = client.get("/admin/api/identities")
+    response = client.get("/nostr-admin/api/identities")
     assert response.status_code == 401
 
 
@@ -83,7 +83,7 @@ def test_admin_can_list_identities_across_users(client, monkeypatch, app):
     app.state.mappings.add_identity("matt", "a" * 64, signer_type="nip07", linked_by="self-service")
     app.state.mappings.add_identity("alice", "b" * 64, signer_type="passkey", linked_by="self-service")
 
-    response = client.get("/admin/api/identities", headers={"cookie": COOKIE})
+    response = client.get("/nostr-admin/api/identities", headers={"cookie": COOKIE})
 
     assert response.status_code == 200
     usernames = {identity["username"] for identity in response.json()["identities"]}
@@ -95,7 +95,7 @@ def test_admin_can_add_identity_for_any_user(client, monkeypatch):
     pubkey = "c" * 64
 
     response = client.post(
-        "/admin/api/identities",
+        "/nostr-admin/api/identities",
         headers={"cookie": COOKIE},
         json={"username": "agentuser", "pubkey": pubkey, "signer_type": "unknown", "label": "Agent key"},
     )
@@ -113,7 +113,7 @@ def test_admin_add_identity_rejects_pubkey_already_linked_elsewhere(client, monk
     app.state.mappings.add_identity("matt", pubkey)
 
     response = client.post(
-        "/admin/api/identities",
+        "/nostr-admin/api/identities",
         headers={"cookie": COOKIE},
         json={"username": "alice", "pubkey": pubkey},
     )
@@ -126,7 +126,7 @@ def test_admin_can_revoke_identity(client, monkeypatch, app):
     identity = app.state.mappings.add_identity("matt", "e" * 64)
 
     response = client.post(
-        f"/admin/api/identities/{identity.identity_id}/revoke",
+        f"/nostr-admin/api/identities/{identity.identity_id}/revoke",
         headers={"cookie": COOKIE},
         json={"username": "matt"},
     )
@@ -140,7 +140,7 @@ def test_admin_revoke_wrong_username_is_not_found(client, monkeypatch, app):
     identity = app.state.mappings.add_identity("matt", "f" * 64)
 
     response = client.post(
-        f"/admin/api/identities/{identity.identity_id}/revoke",
+        f"/nostr-admin/api/identities/{identity.identity_id}/revoke",
         headers={"cookie": COOKIE},
         json={"username": "someone-else"},
     )
@@ -153,7 +153,7 @@ def test_admin_can_rename_identity(client, monkeypatch, app):
     identity = app.state.mappings.add_identity("matt", "1" * 64)
 
     response = client.post(
-        f"/admin/api/identities/{identity.identity_id}/rename",
+        f"/nostr-admin/api/identities/{identity.identity_id}/rename",
         headers={"cookie": COOKIE},
         json={"username": "matt", "label": "Main laptop"},
     )
@@ -168,7 +168,7 @@ def test_admin_can_unlink_all_identities_for_a_user(client, monkeypatch, app):
     app.state.mappings.add_identity("matt", "3" * 64)
 
     response = client.post(
-        "/admin/api/identities/unlink",
+        "/nostr-admin/api/identities/unlink",
         headers={"cookie": COOKIE},
         json={"username": "matt"},
     )

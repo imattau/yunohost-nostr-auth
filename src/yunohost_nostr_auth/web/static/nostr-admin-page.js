@@ -1,4 +1,4 @@
-// Drives /nostr-admin (see server.py's admin_page and the /admin/api/*
+// Drives /nostr-admin (see server.py's admin_page and the /nostr-admin/api/*
 // routes). Loaded with script-src 'self' only (web/page.py's
 // CONTENT_SECURITY_POLICY) - no inline script, same convention as the
 // login/account pages.
@@ -136,7 +136,7 @@
 
   async function loadIdentities() {
     try {
-      const body = await api("/admin/api/identities", { method: "GET" });
+      const body = await api("/nostr-admin/api/identities", { method: "GET" });
       identities = body.identities;
       renderRows();
     } catch (e) {
@@ -152,7 +152,7 @@
       return;
     }
     try {
-      await api(`/admin/api/identities/${identity.id}/rename`, {
+      await api(`/nostr-admin/api/identities/${identity.id}/rename`, {
         method: "POST",
         body: JSON.stringify({ username: identity.username, label: label.trim() }),
       });
@@ -168,7 +168,7 @@
       return;
     }
     try {
-      await api(`/admin/api/identities/${identity.id}/revoke`, {
+      await api(`/nostr-admin/api/identities/${identity.id}/revoke`, {
         method: "POST",
         body: JSON.stringify({ username: identity.username }),
       });
@@ -185,7 +185,7 @@
     try {
       const formData = new FormData(addForm);
       const label = (formData.get("label") || "").toString().trim();
-      await api("/admin/api/identities", {
+      await api("/nostr-admin/api/identities", {
         method: "POST",
         body: JSON.stringify({
           username: (formData.get("username") || "").toString().trim(),
@@ -213,7 +213,7 @@
     gate.classList.remove("hidden");
     let session;
     try {
-      session = await api("/admin/api/session", { method: "GET" });
+      session = await api("/nostr-admin/api/session", { method: "GET" });
     } catch (e) {
       gateTitle.textContent = "Could not check access";
       gateMessage.textContent = e.message;

@@ -13,7 +13,7 @@
     GET  /nostr-account  - link/replace/unlink, for an already
                             password-authenticated YunoHost session
     GET  /nostr-admin    - cross-user identity dashboard, gated on the
-                            "admins" YunoHost group (see /admin/api/*)
+                            "admins" YunoHost group (see /nostr-admin/api/*)
     GET  /static/nostr-connect-vendor.js  - vendored nostr-tools NIP-46 client (Phase 10)
     GET  /static/nostr-connect-ui.js      - shared NIP-46 UI glue for the two pages above
 
@@ -670,20 +670,20 @@ def create_app() -> Starlette:
         Route("/identities/{identity_id}", update_identity_endpoint, methods=["PATCH"]),
         Route("/identities/{identity_id}", revoke_identity_endpoint, methods=["DELETE"]),
         Route("/policy", policy_endpoint, methods=["GET"]),
-        Route("/admin/api/session", admin_session_endpoint, methods=["GET"]),
-        Route("/admin/api/identities", admin_list_identities_endpoint, methods=["GET"]),
-        Route("/admin/api/identities", admin_add_identity_endpoint, methods=["POST"]),
+        Route("/nostr-admin/api/session", admin_session_endpoint, methods=["GET"]),
+        Route("/nostr-admin/api/identities", admin_list_identities_endpoint, methods=["GET"]),
+        Route("/nostr-admin/api/identities", admin_add_identity_endpoint, methods=["POST"]),
         Route(
-            "/admin/api/identities/{identity_id}/revoke",
+            "/nostr-admin/api/identities/{identity_id}/revoke",
             admin_revoke_identity_endpoint,
             methods=["POST"],
         ),
         Route(
-            "/admin/api/identities/{identity_id}/rename",
+            "/nostr-admin/api/identities/{identity_id}/rename",
             admin_rename_identity_endpoint,
             methods=["POST"],
         ),
-        Route("/admin/api/identities/unlink", admin_unlink_endpoint, methods=["POST"]),
+        Route("/nostr-admin/api/identities/unlink", admin_unlink_endpoint, methods=["POST"]),
         Route("/.well-known/nostr.json", nostr_json_endpoint, methods=["GET"]),
     ]
 
