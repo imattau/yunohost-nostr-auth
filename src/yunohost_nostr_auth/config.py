@@ -37,10 +37,12 @@ class Settings(BaseSettings):
     # Relay-list lookup (identity/relays.py, ynh/relay_lookup_server.py):
     # answers "what relays does this linked user prefer" for local
     # consumers such as nostr_catalog, by fetching the linked pubkey's own
-    # NIP-65 (kind 10002) event. Shares identity_lookup's socket/group by
-    # default - same trust boundary, same consumers - but is independently
-    # configurable since it's a separate service with its own lifecycle.
-    relay_lookup_socket: Path = Path("/run/nostr_auth-lookup/relays.sock")
+    # NIP-65 (kind 10002) event. Shares identity_lookup's *group* by
+    # default - same trust boundary, same consumers - but gets its own
+    # RuntimeDirectory/socket path: two systemd services must never share
+    # one RuntimeDirectory=, since stopping either one deletes the
+    # directory (and the other service's socket with it).
+    relay_lookup_socket: Path = Path("/run/nostr_auth-relay-lookup/relays.sock")
     relay_lookup_group: str = "nostr-auth-lookup"
     # Comma-separated bootstrap relays used only to *discover* a pubkey's
     # own relay list - same pattern as nostr_blog's `fallback_relays`
