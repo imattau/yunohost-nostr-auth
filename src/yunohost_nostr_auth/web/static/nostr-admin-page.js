@@ -99,7 +99,7 @@
         <td>${escapeHtml(identity.username)}</td>
         <td class="pubkey" title="${escapeHtml(identity.pubkey)}">${escapeHtml(truncatePubkey(identity.npub))}</td>
         <td>${escapeHtml(identity.signer_type)}</td>
-        <td>${escapeHtml(identity.label || "")}</td>
+        <td class="label-cell">${escapeHtml(identity.label || "")}</td>
         <td>${statusChip}</td>
         <td>${escapeHtml(formatTimestamp(identity.created_at))}</td>
         <td>${escapeHtml(formatTimestamp(identity.last_used))}</td>

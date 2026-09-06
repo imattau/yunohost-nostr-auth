@@ -50,6 +50,7 @@
     background: var(--bg);
     color: var(--text);
     font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
   }
   header {
     display: flex;
@@ -111,14 +112,17 @@
   }
   button.danger { background: var(--danger); color: var(--danger-fg); }
   button:disabled { opacity: 0.5; cursor: default; }
-  table { width: 100%; border-collapse: collapse; }
+  #table-wrap { overflow-x: auto; }
+  table { width: 100%; min-width: 44rem; border-collapse: collapse; }
   th, td {
     text-align: left;
     padding: 0.6rem 0.5rem;
     border-bottom: 1px solid var(--border);
     font-size: 0.87rem;
     vertical-align: top;
+    white-space: nowrap;
   }
+  td.pubkey, td.label-cell { white-space: normal; }
   th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
   tbody tr:hover { background: var(--row-hover); }
   .pubkey { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: var(--muted); }
@@ -158,6 +162,11 @@
   #gate.hidden, #app.hidden { display: none; }
   .empty { color: var(--muted); font-style: italic; padding: 1rem 0; }
   .muted { color: var(--muted); }
+  @media (max-width: 40rem) {
+    header, main { padding-left: 1rem; padding-right: 1rem; }
+    .card { padding: 1rem; }
+    #whoami { text-align: left; }
+  }
 </style>
 </head>
 <body>
