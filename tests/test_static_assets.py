@@ -21,7 +21,14 @@ def test_vendor_bundle_is_served(client):
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/javascript")
-    assert "NostrConnectVendor" in response.text
+
+
+def test_passkey_bundle_is_served(client):
+    response = client.get("/static/nostr-passkey-vendor.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/javascript")
+    assert "NostrPasskey" in response.text
     assert len(response.content) > 10_000  # a real bundle, not an empty/placeholder file
 
 

@@ -95,6 +95,8 @@ async def challenge_endpoint(request: Request) -> Response:
     action = request.query_params.get("action", LOGIN_ACTION)
     if action not in ALLOWED_ACTIONS:
         raise _ApiError(400, f"unknown action {action!r}")
+    if action == LOGIN_ACTION and not get_settings().allow_nostr_login:
+        raise _ApiError(403, "Nostr login is currently disabled")
 
     domain = request.headers.get("host")
     if not domain:
@@ -117,6 +119,9 @@ async def challenge_endpoint(request: Request) -> Response:
 
 async def authenticate_endpoint(request: Request) -> Response:
     _require_json(request)
+    settings = get_settings()
+    if not settings.allow_nostr_login:
+        raise _ApiError(403, "Nostr login is currently disabled")
     body = await request.json()
     event = body.get("event")
     if not isinstance(event, dict):
@@ -128,7 +133,12 @@ async def authenticate_endpoint(request: Request) -> Response:
 
     mappings: MappingStore = request.app.state.mappings
     try:
-        minted = login.authenticate(mappings, challenge=challenge, event_json=json.dumps(event))
+        minted = login.authenticate(
+            mappings,
+            challenge=challenge,
+            event_json=json.dumps(event),
+            clock_skew=settings.clock_skew_seconds,
+        )
     except login.LoginError as e:
         # PLAN.md Phase 13: rate limiting / brute-force throttling. This
         # exact "... failure from <ip>: ..." shape is what
@@ -156,6 +166,8 @@ async def authenticate_endpoint(request: Request) -> Response:
 
 
 async def link_challenge_endpoint(request: Request) -> Response:
+    if not get_settings().allow_identity_linking:
+        raise _ApiError(403, "self-service identity linking is currently disabled")
     domain = request.headers.get("host")
     if not domain:
         raise _ApiError(400, "missing Host header")
@@ -177,10 +189,13 @@ async def link_challenge_endpoint(request: Request) -> Response:
 
 async def link_endpoint(request: Request) -> Response:
     _require_json(request)
+    if not get_settings().allow_identity_linking:
+        raise _ApiError(403, "self-service identity linking is currently disabled")
     body = await request.json()
     event = body.get("event")
     if not isinstance(event, dict):
         raise _ApiError(400, "missing 'event'")
+    signer_type, label = _identity_metadata(body)
 
     cookie_header = request.headers.get("cookie")
     if not cookie_header:
@@ -199,6 +214,9 @@ async def link_endpoint(request: Request) -> Response:
             host=request.headers.get("host", ""),
             challenge=challenge,
             event_json=json.dumps(event),
+            signer_type=signer_type,
+            label=label,
+            clock_skew=settings.clock_skew_seconds,
             portal_api_base_url=settings.portal_api_base_url,
         )
     except linking.LinkingError as e:
@@ -246,7 +264,7 @@ async def identity_endpoint(request: Request) -> Response:
 
     mappings: MappingStore = request.app.state.mappings
     identity = mappings.get_by_username(username)
-    if identity is None:
+    if identity is None or not identity.enabled:
         return JSONResponse({"linked": False})
 
     return JSONResponse(
@@ -259,6 +277,146 @@ async def identity_endpoint(request: Request) -> Response:
             "last_used": identity.last_used,
         }
     )
+
+
+def _identity_json(identity) -> dict:
+    return {
+        "id": identity.identity_id,
+        "pubkey": identity.pubkey,
+        "npub": npub.hex_to_npub(identity.pubkey),
+        "created_at": identity.created_at,
+        "last_used": identity.last_used,
+        "enabled": identity.enabled,
+        "signer_type": identity.signer_type,
+        "label": identity.label,
+        "linked_by": identity.linked_by,
+        "revoked_at": identity.revoked_at,
+    }
+
+
+def _identity_metadata(body: dict) -> tuple[str, str | None]:
+    signer_type = body.get("signer_type", "unknown")
+    label = body.get("label")
+    if not isinstance(signer_type, str) or signer_type not in {"unknown", "nip07", "nip46", "passkey"}:
+        raise _ApiError(400, "invalid signer_type")
+    if label is not None and (not isinstance(label, str) or not label.strip() or len(label) > 120):
+        raise _ApiError(400, "label must be a non-empty string of at most 120 characters")
+    return signer_type, label.strip() if isinstance(label, str) else None
+
+
+def _authenticated_username(request: Request, settings: Settings) -> str:
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+    try:
+        return portal_client.get_authenticated_username(
+            cookie_header, host=request.headers.get("host", ""), base_url=settings.portal_api_base_url
+        )
+    except portal_client.PortalAuthError as e:
+        raise _ApiError(401, str(e)) from e
+
+
+async def identities_endpoint(request: Request) -> Response:
+    settings = get_settings()
+    username = _authenticated_username(request, settings)
+    identities = request.app.state.mappings.list_by_username(username)
+    return JSONResponse(
+        {"username": username, "identities": [_identity_json(identity) for identity in identities]}
+    )
+
+
+async def policy_endpoint(request: Request) -> Response:
+    """Expose only the public policy switches needed by the web pages."""
+    settings = get_settings()
+    return JSONResponse(
+        {
+            "allow_nostr_login": settings.allow_nostr_login,
+            "allow_identity_linking": settings.allow_identity_linking,
+        }
+    )
+
+
+async def add_identity_endpoint(request: Request) -> Response:
+    _require_json(request)
+    if not get_settings().allow_identity_linking:
+        raise _ApiError(403, "self-service identity linking is currently disabled")
+    body = await request.json()
+    event = body.get("event")
+    if not isinstance(event, dict):
+        raise _ApiError(400, "missing 'event'")
+
+    signer_type, label = _identity_metadata(body)
+
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+
+    nonce = nostr_verify.extract_tag_from_raw_event(event, "challenge")
+    challenge = request.app.state.challenge_store.consume(nonce) if nonce else None
+
+    settings = get_settings()
+    try:
+        username = linking.confirm_and_add(
+            request.app.state.mappings,
+            cookie_header=cookie_header,
+            host=request.headers.get("host", ""),
+            challenge=challenge,
+            event_json=json.dumps(event),
+            signer_type=signer_type,
+            label=label,
+            clock_skew=settings.clock_skew_seconds,
+            portal_api_base_url=settings.portal_api_base_url,
+        )
+    except linking.LinkingError as e:
+        logger.warning("identity add failure from %s: %s", _client_ip(request), e)
+        raise _ApiError(401, str(e)) from e
+
+    logger.info("identity added (%s) from %s", username, _client_ip(request))
+    identity = request.app.state.mappings.get_by_username(username)
+    return JSONResponse({"ok": True, "username": username, "identity": _identity_json(identity)})
+
+
+async def revoke_identity_endpoint(request: Request) -> Response:
+    settings = get_settings()
+    username = _authenticated_username(request, settings)
+    raw_identity_id = request.path_params["identity_id"]
+    try:
+        identity_id = int(raw_identity_id)
+    except (TypeError, ValueError):
+        raise _ApiError(400, "identity id must be an integer") from None
+    if identity_id <= 0:
+        raise _ApiError(400, "identity id must be positive")
+
+    if not request.app.state.mappings.revoke_identity(identity_id, username):
+        raise _ApiError(404, "identity not found or already revoked")
+
+    logger.info("identity revoked (%s, id=%s) from %s", username, identity_id, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username, "identity_id": identity_id})
+
+
+async def update_identity_endpoint(request: Request) -> Response:
+    _require_json(request)
+    body = await request.json()
+    if "label" not in body:
+        raise _ApiError(400, "missing 'label'")
+    label = body["label"]
+    if label is not None and (not isinstance(label, str) or len(label) > 120):
+        raise _ApiError(400, "label must be null or a string of at most 120 characters")
+    label = label.strip() if isinstance(label, str) else None
+    settings = get_settings()
+    username = _authenticated_username(request, settings)
+    try:
+        identity_id = int(request.path_params["identity_id"])
+    except (TypeError, ValueError):
+        raise _ApiError(400, "identity id must be an integer") from None
+    if identity_id <= 0:
+        raise _ApiError(400, "identity id must be positive")
+
+    identity = request.app.state.mappings.update_identity_label(identity_id, username, label or None)
+    if identity is None:
+        raise _ApiError(404, "identity not found or revoked")
+    logger.info("identity label updated (%s, id=%s) from %s", username, identity_id, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username, "identity": _identity_json(identity)})
 
 
 async def nostr_json_endpoint(request: Request) -> Response:
@@ -353,11 +511,19 @@ def create_app() -> Starlette:
         Route("/link", link_endpoint, methods=["POST"]),
         Route("/unlink", unlink_endpoint, methods=["POST"]),
         Route("/identity", identity_endpoint, methods=["GET"]),
+        Route("/identities", identities_endpoint, methods=["GET"]),
+        Route("/identities/link", add_identity_endpoint, methods=["POST"]),
+        Route("/identities/{identity_id}", update_identity_endpoint, methods=["PATCH"]),
+        Route("/identities/{identity_id}", revoke_identity_endpoint, methods=["DELETE"]),
+        Route("/policy", policy_endpoint, methods=["GET"]),
         Route("/.well-known/nostr.json", nostr_json_endpoint, methods=["GET"]),
     ]
 
     app = Starlette(routes=routes, exception_handlers={_ApiError: _api_error_handler})
-    app.state.challenge_store = ChallengeStore(ttl_seconds=settings.challenge_ttl_seconds)
+    app.state.challenge_store = ChallengeStore(
+        ttl_seconds=settings.challenge_ttl_seconds,
+        db_path=settings.challenge_db_path,
+    )
     app.state.mappings = MappingStore(settings.mappings_db_path)
     return app
 

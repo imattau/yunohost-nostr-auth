@@ -21,6 +21,7 @@ def authenticate(
     *,
     challenge: Challenge | None,
     event_json: str,
+    clock_skew: int = 60,
 ) -> MintedSession:
     """Verify a signed login event against `challenge` and, if the
     signer's pubkey is linked to a YunoHost account, mint a session for it.
@@ -42,6 +43,7 @@ def authenticate(
             expected_action=challenge.action,
             issued_at=challenge.issued_at,
             expires_at=challenge.expires_at,
+            clock_skew=clock_skew,
         )
     except nostr_verify.InvalidEvent as e:
         raise LoginError(str(e)) from e
@@ -50,5 +52,8 @@ def authenticate(
     if identity is None:
         raise LoginError("this pubkey is not linked to any YunoHost account")
 
-    store.touch_last_used(identity.ynh_username)
+    if identity.identity_id is not None:
+        store.touch_identity(identity.identity_id)
+    else:  # Compatibility with lightweight MappingStore test doubles.
+        store.touch_last_used(identity.ynh_username)
     return ynh_session.create_ynh_session(identity.ynh_username, challenge.domain)

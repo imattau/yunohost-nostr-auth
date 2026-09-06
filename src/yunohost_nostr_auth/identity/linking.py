@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from yunohost_nostr_auth.auth import nostr_verify
 from yunohost_nostr_auth.auth.challenge import Challenge
-from yunohost_nostr_auth.identity.mappings import MappingStore
+from yunohost_nostr_auth.identity.mappings import MappingStore, PubkeyAlreadyLinked
 from yunohost_nostr_auth.ynh import portal_client
 
 LINK_ACTION = "yunohost-link"
@@ -36,6 +36,10 @@ def confirm_and_link(
     challenge: Challenge | None,
     event_json: str,
     portal_api_base_url: str = "http://127.0.0.1:6788",
+    clock_skew: int = 60,
+    replace: bool = True,
+    signer_type: str = "unknown",
+    label: str | None = None,
 ) -> str:
     """Verify both requirements above and record the mapping.
 
@@ -68,12 +72,46 @@ def confirm_and_link(
             expected_action=challenge.action,
             issued_at=challenge.issued_at,
             expires_at=challenge.expires_at,
+            clock_skew=clock_skew,
         )
     except nostr_verify.InvalidEvent as e:
         raise LinkingError(str(e)) from e
 
-    store.link(username, pubkey)
+    try:
+        if replace:
+            store.link(username, pubkey, signer_type=signer_type, label=label)
+        else:
+            store.add_identity(username, pubkey, signer_type=signer_type, label=label)
+    except PubkeyAlreadyLinked as e:
+        raise LinkingError(str(e)) from e
     return username
+
+
+def confirm_and_add(
+    store: MappingStore,
+    *,
+    cookie_header: str,
+    host: str,
+    challenge: Challenge | None,
+    event_json: str,
+    signer_type: str = "unknown",
+    label: str | None = None,
+    portal_api_base_url: str = "http://127.0.0.1:6788",
+    clock_skew: int = 60,
+) -> str:
+    """Verify a linking challenge and add a second identity to the account."""
+    return confirm_and_link(
+        store,
+        cookie_header=cookie_header,
+        host=host,
+        challenge=challenge,
+        event_json=event_json,
+        portal_api_base_url=portal_api_base_url,
+        clock_skew=clock_skew,
+        replace=False,
+        signer_type=signer_type,
+        label=label,
+    )
 
 
 def confirm_and_unlink(

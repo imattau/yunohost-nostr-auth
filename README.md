@@ -1,7 +1,7 @@
 # yunohost-nostr-auth
 
 A standalone service that lets an existing YunoHost user authenticate using a
-linked Nostr identity (NIP-07 first, NIP-46 later), without replacing
+linked Nostr identity (NIP-07, NIP-46, or passkey), without replacing
 password login or requiring upstream YunoHost changes.
 
 This repo is the core service and protocol implementation. The YunoHost
@@ -15,7 +15,9 @@ See [PLAN.md](PLAN.md) for the full architecture and phased roadmap.
 Phase 1 (session-creation investigation), Phase 2 (the core service:
 challenges, signature verification, identity mapping, linking, and the
 HTTP endpoints), and Phase 5/6/7's UI (the standalone `/nostr-login` and
-`/nostr-account` pages, NIP-07) are implemented and tested. See
+`/nostr-account` pages, NIP-07) are implemented and tested. Identity mapping
+supports multiple linked devices per YunoHost account, with per-identity
+labels, signer types, and revocation. See
 [`PHASE0_INVESTIGATION.md`](PHASE0_INVESTIGATION.md) for the session-format
 findings this is built against.
 
@@ -68,7 +70,14 @@ lets someone without a Nostr identity yet create one entirely client-side
 (never sent anywhere), with the raw key persisted in `localStorage` only if
 they explicitly opt in via checkbox - unconditionally persisting it would
 be the same risk class as storing a password there. `/nostr-login` gained
-a matching "Sign in with saved key" button for that opt-in case. Separately,
+a matching "Sign in with saved key" button for that opt-in case. The passkey
+flow can create a new identity or import the generated key into a WebAuthn
+PRF-encrypted local vault; the decrypted key exists only in memory while
+signing, and can be forgotten from the device independently of the
+server-side link. The account page can also export the unlocked passkey
+identity as an offline recovery nsec, with a warning that it grants full
+signing control, and restore that nsec into a new passkey on another device.
+Separately,
 `GET /.well-known/nostr.json?name=<username>` exposes a linked identity as
 a standard NIP-05 identifier (`<username>@<domain>`) for use by any Nostr
 client or other app - not just other apps on the same YunoHost server -
@@ -103,12 +112,21 @@ through nostr_auth_ynh's own nginx, never directly) to a dedicated file a
 banning here. See that repo for the jail/systemd wiring.
 
 `admin_cli.py` adds a second, admin-authority linking path alongside the
-self-service one: `yunohost-nostr-auth-admin link/unlink/list`, reached via
+self-service one: `yunohost-nostr-auth-admin link/unlink/rename/revoke/list`, reached via
 `nostr_auth_ynh`'s config-panel actions rather than a route on this
 service - binds a pubkey to an account without requiring a live signature
 from it, for provisioning an account for an agent/bot using an npub it
 reports itself. See `docs/mcp-integration.md` for how this relates to
 yunohost-mcp's separate pubkey→role/scope model.
+
+The service also exposes independent `allow_nostr_login` and
+`allow_identity_linking` policy switches. They pause the corresponding
+self-service flows without deleting mappings; password login and admin
+recovery remain available.
+
+Challenge lifetime and clock-skew tolerance are bounded runtime settings as
+well, allowing slow remote signers without permitting an accidentally huge
+authentication window.
 
 ## Layout
 
@@ -116,7 +134,7 @@ yunohost-mcp's separate pubkey→role/scope model.
 src/yunohost_nostr_auth/
     server.py              # the ASGI app: GET/POST routes wiring everything below together
     config.py              # NOSTR_AUTH_* environment settings
-    admin_cli.py           # yunohost-nostr-auth-admin: admin-provisioned link/unlink/list,
+    admin_cli.py           # yunohost-nostr-auth-admin: admin-provisioned link/unlink/revoke/list,
                             # reached via nostr_auth_ynh's config-panel actions, not HTTP
     auth/
         challenge.py       # issue/consume single-use, domain+action-bound challenges
@@ -144,12 +162,15 @@ src/yunohost_nostr_auth/
         static/
             nostr-connect-vendor.js  # vendored nostr-tools NIP-46 client (Phase 10) - see
                                       # vendor/nostr-connect/ for the build recipe
+            nostr-passkey-vendor.js  # vendored nostr-passkey signer (Phase 11) - see
+                                      # vendor/nostr-passkey/ for the build recipe
             nostr-connect-ui.js       # shared bunker://+QR+localStorage glue for both pages
             nostr-login-page.js       # /nostr-login's own logic - external, not inline, so
                                        # CONTENT_SECURITY_POLICY's script-src can be 'self' only
             nostr-account-page.js     # /nostr-account's own logic - same reason
 
 vendor/nostr-connect/    # the (not shipped) build recipe for nostr-connect-vendor.js
+vendor/nostr-passkey/    # the (not shipped) build recipe for nostr-passkey-vendor.js
 ```
 
 ## Development

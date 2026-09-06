@@ -147,12 +147,19 @@ Consume the challenge atomically after successful authentication.
 
 ## Phase 4: Identity mapping
 
-**Status: complete.** `identity/mappings.py` is a SQLite-backed store with
-exactly the schema below (`ynh_username`, `pubkey`, `created_at`, `last_used`,
-`enabled`), one pubkey per user. LDAP is untouched - see Phase 15/16 for where
-that might eventually change. `npub` is decoded/encoded only at the UI
-boundary (`identity/npub.py`); everywhere else, including the DB, stores the
-canonical hex pubkey.
+**Status: foundation in progress.** `identity/mappings.py` is now a
+SQLite-backed store with a migrated `identities` table: multiple identities
+may belong to one YunoHost user, while each pubkey remains unique to one
+user. Existing installations using the original `users` table are migrated
+non-destructively on first open. The legacy `link()` API still performs a
+replacement for compatibility; `add_identity()` and `list_by_username()` are
+the new multi-identity primitives. Authenticated `/identities` endpoints now
+list, add, rename, and revoke individual identities. The account-page UI now also has
+an optional `nostr-passkey` signer path, while NIP-07/NIP-46/local-key paths
+remain available. LDAP is untouched - see Phase 15/16 for where that might
+eventually change. `npub` is decoded/encoded only at the UI boundary
+(`identity/npub.py`); everywhere else, including the DB, stores the canonical
+hex pubkey.
 
 Initially avoid modifying the YunoHost LDAP schema.
 
@@ -178,9 +185,9 @@ last_used
 enabled
 ```
 
-Support one pubkey per user initially.
-
-Design the schema so multiple keys could be supported later.
+Support multiple pubkeys per user, with a stable identity id and metadata for
+future device management (`signer_type`, `label`, `linked_by`, and
+`revoked_at`).
 
 Do not use `npub` internally. Decode it at the UI boundary and store the canonical hex public key.
 
@@ -201,7 +208,7 @@ proving possession of it - the situation "never let an arbitrary Nostr pubkey cl
 existing account" doesn't cover, since here an admin is knowingly vouching for the pubkey
 themselves (e.g. provisioning a YunoHost account for an agent using an npub it reports
 itself, where there's no browser in the loop to sign a linking challenge). `admin_cli.py`
-(new `yunohost-nostr-auth-admin` console script: `link`/`unlink`/`list`, talking straight
+(new `yunohost-nostr-auth-admin` console script: `link`/`unlink`/`rename`/`revoke`/`list`, talking straight
 to the same SQLite mapping DB) is reached only via nostr_auth_ynh's config-panel actions -
 see that repo's `config_panel.toml`/`scripts/config` - which is itself only reachable by
 someone who can already administer the YunoHost server, so no separate authentication
@@ -436,6 +443,18 @@ NIP-07 and NIP-46 should ultimately feed the same verification pipeline.
 
 ## Phase 11: Passkeys
 
+**Status: browser signer integration started.** The account and login pages
+load a self-hosted, pinned `nostr-passkey` bundle. A passkey PRF identity can
+be created or unlocked locally and then uses the same Nostr challenge/signature
+pipeline as NIP-07 and NIP-46. A generated key can also be imported into the
+passkey vault, preserving its Nostr identity. The server stores only the
+resulting pubkey and signer metadata; browsers without WebAuthn PRF continue
+to use the existing signer options. Recovery UX now includes explicit offline
+nsec export, restore, and local forget actions. The checked-in bundle has a
+mocked-WebAuthn smoke test covering encryption, unlock, signing, verification,
+destruction, and clearing. Hardware/browser compatibility testing and broader
+recovery guidance remain.
+
 Do not initially make WebAuthn another YunoHost authentication implementation.
 
 Instead support passkey-protected Nostr signers:
@@ -454,7 +473,12 @@ Later, direct WebAuthn authentication could be added as another provider if the 
 
 ## Phase 12: Recovery model
 
-This needs explicit design.
+**Status: baseline complete.** Password login remains the recovery path, while
+Nostr identities can be replaced, individually revoked, or fully unlinked.
+Passkey identities additionally have an explicit offline `nsec` export/restore
+flow, with local forget kept separate from server-side unlinking. The remaining
+work is hardening the recovery UX and documenting operational recovery for
+larger deployments.
 
 Nostr login should initially be a convenience/security enhancement, not the only recovery path.
 
@@ -474,7 +498,7 @@ password login
 → link new key
 ```
 
-Admins should also have a CLI recovery mechanism:
+Admins also have CLI and YunoHost webadmin recovery mechanisms:
 
 ```bash
 yunohost nostr-auth list
@@ -528,6 +552,12 @@ Never log signed authentication payloads unnecessarily.
 
 ## Phase 14: Admin interface
 
+**Status: CLI and YunoHost admin UI expanded.** The admin command now supports
+additive linking (`link --add`), signer metadata, per-identity
+rename/revocation, full-account unlink, and listing enabled/revoked identities.
+The `nostr_auth_ynh` config panel exposes those same operations, including the
+identity IDs needed to target one device without affecting the others.
+
 Initially CLI:
 
 ```bash
@@ -538,9 +568,14 @@ yunohost nostr-auth users
 yunohost nostr-auth show matt
 
 yunohost nostr-auth unlink matt
+
+yunohost nostr-auth revoke matt <identity-id>
 ```
 
-Later integrate into the YunoHost admin UI.
+The standalone CLI keeps `link`'s original replace-all behavior for backwards
+compatibility; `link --add` provisions another device without removing the
+existing identities. `revoke` disables one identity while retaining its audit
+record. The YunoHost admin UI exposes the same operations.
 
 Useful settings:
 
@@ -552,6 +587,15 @@ Allow Nostr login
 Session lifetime
 Authentication event lifetime
 ```
+
+`Allow identity linking` and `Allow Nostr login` are now independent runtime
+policy switches, exposed through the YunoHost config panel and enforced by the
+service without deleting identity mappings. Password login and administrator
+recovery remain available when either switch is disabled.
+
+Challenge lifetime (30–120 seconds) and clock-skew tolerance (0–300 seconds)
+are also configurable there, with bounded values to prevent accidentally
+creating an unreasonably long replay window.
 
 Keep automatic account registration disabled by default.
 

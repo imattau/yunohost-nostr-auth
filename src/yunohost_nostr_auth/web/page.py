@@ -40,6 +40,7 @@ CONTENT_SECURITY_POLICY = (
 
 _STATIC_CONTENT_TYPES = {
     "nostr-connect-vendor.js": "application/javascript",
+    "nostr-passkey-vendor.js": "application/javascript",
     "nostr-connect-ui.js": "application/javascript",
     "nostr-login-page.js": "application/javascript",
     "nostr-account-page.js": "application/javascript",

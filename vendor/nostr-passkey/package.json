@@ -1,0 +1,14 @@
+{
+  "name": "nostr-passkey-vendor-build",
+  "private": true,
+  "description": "Build recipe for web/static/nostr-passkey-vendor.js - not shipped.",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --global-name=NostrPasskey --target=es2022 --outfile=../../src/yunohost_nostr_auth/web/static/nostr-passkey-vendor.js",
+    "test": "node smoke-test.mjs"
+  },
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "nostr-passkey": "0.4.0",
+    "nostr-tools": "2.25.2"
+  }
+}

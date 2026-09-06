@@ -5,6 +5,7 @@
   var button = document.getElementById("signin-btn");
   var reconnectBtn = document.getElementById("reconnect-btn");
   var localKeyBtn = document.getElementById("local-key-btn");
+  var passkeyBtn = document.getElementById("passkey-btn");
   var subtitle = document.getElementById("subtitle");
   var messageEl = document.getElementById("message");
   var bunkerInput = document.getElementById("bunker-input");
@@ -31,6 +32,7 @@
     button.disabled = disabled;
     reconnectBtn.disabled = disabled;
     localKeyBtn.disabled = disabled;
+    passkeyBtn.disabled = disabled;
     bunkerConnectBtn.disabled = disabled;
     bunkerInput.disabled = disabled;
     qrShowBtn.disabled = disabled;
@@ -130,6 +132,17 @@
     return !!(window.nostr && typeof window.nostr.signEvent === "function");
   }
 
+  function hasStoredPasskey() {
+    try {
+      return !!(
+        window.NostrPasskey &&
+        window.NostrPasskey.hasStoredPasskeyIdentity()
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
   // NIP-07 extensions (Alby, nos2x, ...) commonly inject window.nostr by
   // inserting a page-context <script> from their content script, which is
   // NOT guaranteed to finish before this tail-of-body script runs - a
@@ -175,8 +188,34 @@
         return signer.signEvent(event);
       });
     } finally {
-      signer.close();
+      disposeSigner(signer);
     }
+  }
+
+  function disposeSigner(signer) {
+    if (!signer) return;
+    if (typeof signer.close === "function") signer.close();
+    if (typeof signer.destroy === "function") signer.destroy();
+  }
+
+  async function applyPolicy() {
+    var result = await fetchJSON("/policy");
+    if (!result.ok || !result.body || result.body.allow_nostr_login !== false) {
+      return;
+    }
+    setAllButtonsDisabled(true);
+    button.hidden = true;
+    reconnectBtn.hidden = true;
+    localKeyBtn.hidden = true;
+    passkeyBtn.hidden = true;
+    bunkerConnectBtn.hidden = true;
+    bunkerInput.hidden = true;
+    qrShowBtn.hidden = true;
+    qrBox.hidden = true;
+    document.querySelectorAll("details.remote-signer").forEach(function (details) {
+      details.hidden = true;
+    });
+    subtitle.textContent = "Nostr login is currently disabled by the administrator. Use your YunoHost password instead.";
   }
 
   // The click handler always re-checks for the extension itself (see
@@ -226,6 +265,29 @@
       }
       await signInWithSigner(signer);
     });
+  }
+
+  async function signInWithPasskey() {
+    clearMessage();
+    setAllButtonsDisabled(true);
+    try {
+      if (!hasStoredPasskey()) {
+        showMessage("No passkey identity found on this device.", "error");
+        return;
+      }
+      var identity = await window.NostrPasskey.unlockPasskeyIdentity();
+      var signer = window.NostrPasskey.buildPasskeySignerShim(identity.secretKey);
+      await signInWithSigner(signer);
+    } catch (e) {
+      showMessage(e.message || "Could not unlock the passkey identity.", "error");
+    } finally {
+      setAllButtonsDisabled(false);
+    }
+  }
+
+  if (hasStoredPasskey()) {
+    passkeyBtn.hidden = false;
+    passkeyBtn.addEventListener("click", signInWithPasskey);
   }
 
   bunkerConnectBtn.addEventListener("click", async function () {
@@ -286,5 +348,7 @@
     qrBox.hidden = true;
   });
 
-  app.hidden = false;
+  applyPolicy().finally(function () {
+    app.hidden = false;
+  });
 })();

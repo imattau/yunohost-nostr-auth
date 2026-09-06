@@ -11,3 +11,5 @@ build/
 uv.lock.bak
 vendor/nostr-connect/node_modules/
 vendor/nostr-connect/package-lock.json
+vendor/nostr-passkey/node_modules/
+vendor/nostr-passkey/package-lock.json

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
 
     # PLAN.md Phase 3: 30-120 second expiry.
     challenge_ttl_seconds: int = 90
+    # Policy switches are independent so an administrator can pause Nostr
+    # login or self-service linking without deleting identity data.
+    allow_nostr_login: bool = True
+    allow_identity_linking: bool = True
     # Slack for the signed event's own created_at vs. the challenge's
     # issued_at/expires_at window, to allow for client/server clock drift
     # without materially widening the replay window (the single-use nonce
@@ -64,9 +69,27 @@ class Settings(BaseSettings):
     # wants its own throttling instead.
     security_log_path: Path | None = None
 
+    @field_validator("challenge_ttl_seconds")
+    @classmethod
+    def validate_challenge_ttl(cls, value: int) -> int:
+        if not 30 <= value <= 120:
+            raise ValueError("challenge_ttl_seconds must be between 30 and 120")
+        return value
+
+    @field_validator("clock_skew_seconds")
+    @classmethod
+    def validate_clock_skew(cls, value: int) -> int:
+        if not 0 <= value <= 300:
+            raise ValueError("clock_skew_seconds must be between 0 and 300")
+        return value
+
     @property
     def mappings_db_path(self) -> Path:
         return self.data_dir / "identities.db"
+
+    @property
+    def challenge_db_path(self) -> Path:
+        return self.data_dir / "challenges.db"
 
     @property
     def relay_cache_db_path(self) -> Path:

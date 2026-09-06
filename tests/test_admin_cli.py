@@ -60,6 +60,44 @@ def test_link_rejects_pubkey_already_linked_to_another_user(data_dir, capsys):
     assert "already linked" in capsys.readouterr().err
 
 
+def test_add_keeps_existing_identity_and_records_metadata(data_dir):
+    first = Keys.generate()
+    second = Keys.generate()
+    assert admin_cli.main(["link", "agent-add", first.public_key().to_hex()]) == 0
+    assert admin_cli.main([
+        "link", "agent-add", second.public_key().to_hex(), "--add",
+        "--signer-type", "passkey", "--label", "Laptop",
+    ]) == 0
+
+    store = admin_cli.MappingStore(data_dir / "identities.db")
+    identities = store.list_by_username("agent-add")
+    assert len(identities) == 2
+    added = next(identity for identity in identities if identity.pubkey == second.public_key().to_hex())
+    assert added.signer_type == "passkey"
+    assert added.label == "Laptop"
+    assert added.linked_by == "admin"
+
+
+def test_revoke_disables_one_identity(data_dir):
+    keys = Keys.generate()
+    admin_cli.main(["link", "agent-revoke", keys.public_key().to_hex()])
+    store = admin_cli.MappingStore(data_dir / "identities.db")
+    identity_id = store.get_by_username("agent-revoke").identity_id
+
+    assert admin_cli.main(["revoke", "agent-revoke", str(identity_id)]) == 0
+    assert store.get_by_id(identity_id).enabled is False
+
+
+def test_rename_updates_one_identity_label(data_dir):
+    keys = Keys.generate()
+    admin_cli.main(["link", "agent-rename", keys.public_key().to_hex()])
+    store = admin_cli.MappingStore(data_dir / "identities.db")
+    identity_id = store.get_by_username("agent-rename").identity_id
+
+    assert admin_cli.main(["rename", "agent-rename", str(identity_id), "Office laptop"]) == 0
+    assert store.get_by_id(identity_id).label == "Office laptop"
+
+
 def test_unlink_removes_the_identity(data_dir):
     keys = Keys.generate()
     admin_cli.main(["link", "agent-7", keys.public_key().to_hex()])

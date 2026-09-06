@@ -75,3 +75,61 @@ def test_reopening_store_persists_data(tmp_path):
 
     reopened = MappingStore(db_path)
     assert reopened.get_by_username("matt").pubkey == PUBKEY_A
+
+
+def test_multiple_identities_can_belong_to_one_user(store):
+    first = store.add_identity("matt", PUBKEY_A, signer_type="nip07", label="Laptop")
+    second = store.add_identity("matt", PUBKEY_B, signer_type="nip46", label="Phone")
+
+    assert first.identity_id != second.identity_id
+    assert [identity.pubkey for identity in store.list_by_username("matt")] == [PUBKEY_B, PUBKEY_A]
+    assert store.get_by_pubkey(PUBKEY_A).label == "Laptop"
+    assert store.get_by_pubkey(PUBKEY_B).signer_type == "nip46"
+
+
+def test_identity_can_be_revoked_without_removing_other_identities(store):
+    first = store.add_identity("matt", PUBKEY_A, label="Laptop")
+    second = store.add_identity("matt", PUBKEY_B, label="Phone")
+
+    assert store.revoke_identity(first.identity_id, "matt") is True
+    assert store.get_by_pubkey(PUBKEY_A) is None
+    assert store.get_by_pubkey(PUBKEY_B) is not None
+    assert store.get_by_id(first.identity_id).revoked_at is not None
+    assert store.revoke_identity(second.identity_id, "alice") is False
+
+
+def test_active_identity_label_can_be_updated_without_changing_pubkey(store):
+    identity = store.add_identity("matt", PUBKEY_A, label="Laptop")
+
+    updated = store.update_identity_label(identity.identity_id, "matt", "Work laptop")
+
+    assert updated.label == "Work laptop"
+    assert updated.pubkey == PUBKEY_A
+    assert store.update_identity_label(identity.identity_id, "alice", "Nope") is None
+
+
+def test_legacy_users_table_is_migrated_once(tmp_path):
+    import sqlite3
+
+    db_path = tmp_path / "identities.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE users (
+                ynh_username TEXT PRIMARY KEY,
+                pubkey TEXT NOT NULL UNIQUE,
+                created_at INTEGER NOT NULL,
+                last_used INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1
+            )
+            """
+        )
+        conn.execute("INSERT INTO users VALUES (?, ?, ?, ?, ?)", ("matt", PUBKEY_A, 1, None, 1))
+        conn.commit()
+
+    store = MappingStore(db_path)
+    assert store.get_by_pubkey(PUBKEY_A).ynh_username == "matt"
+
+    store.link("matt", PUBKEY_B)
+    reopened = MappingStore(db_path)
+    assert [identity.pubkey for identity in reopened.list_by_username("matt")] == [PUBKEY_B]

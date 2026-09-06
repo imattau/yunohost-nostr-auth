@@ -140,6 +140,39 @@
     margin: 2px 0 10px;
     cursor: pointer;
   }
+  .identity-list { margin: 0 0 20px; text-align: left; }
+  .identity-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+  }
+  .identity-card:first-child { margin-top: 0; }
+  .identity-card .identity-name { font-weight: 600; }
+  .identity-card .identity-meta {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 4px;
+    word-break: break-word;
+  }
+  .identity-card .identity-actions { margin-top: 10px; }
+  label.field-label {
+    display: block;
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 14px;
+    text-align: left;
+  }
+  input[type="text"], select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    font-size: 0.9rem;
+    margin-top: 5px;
+  }
 </style>
 </head>
 <body>
@@ -162,24 +195,29 @@
   </div>
 
   <div id="signed-in" hidden>
-    <dl id="linked-info" hidden>
-      <dt>Linked identity (npub)</dt>
-      <dd id="npub-value"></dd>
-      <dt>NIP-05 identifier</dt>
-      <dd id="nip05-value"></dd>
-      <dt>Linked since</dt>
-      <dd id="created-value"></dd>
-      <dt>Last used</dt>
-      <dd id="last-used-value"></dd>
-    </dl>
+    <div id="identity-list" class="identity-list" hidden>
+      <p class="hint" style="margin-bottom:8px">Linked identities:</p>
+      <div id="identity-list-items"></div>
+    </div>
     <p id="unlinked-note" hidden>No Nostr identity is linked to your account yet.</p>
 
+    <label id="link-mode-label" class="field-label" for="link-mode" hidden>
+      Identity action
+      <select id="link-mode">
+        <option value="replace">Replace existing identity</option>
+        <option value="add">Add another identity</option>
+      </select>
+    </label>
+    <label class="field-label" for="identity-label">
+      Device label (optional)
+      <input type="text" id="identity-label" maxlength="120" placeholder="e.g. Phone or Laptop">
+    </label>
     <div class="row">
       <button class="primary" id="link-btn" type="button">Link identity</button>
       <button class="danger" id="unlink-btn" type="button" hidden>Unlink</button>
     </div>
 
-    <details class="remote-signer">
+    <details class="remote-signer linking-option">
       <summary>Use a remote signer instead (NIP-46)</summary>
       <div class="remote-signer-body">
         <p class="sub" style="margin-bottom:8px">
@@ -199,7 +237,7 @@
       </div>
     </details>
 
-    <details class="remote-signer">
+    <details class="remote-signer linking-option">
       <summary>Don't have a Nostr identity? Generate one</summary>
       <div class="remote-signer-body">
         <p class="hint">
@@ -238,6 +276,40 @@
       </div>
     </details>
 
+    <details class="remote-signer linking-option">
+      <summary>Use a passkey on this device</summary>
+      <div class="remote-signer-body">
+        <p class="hint">
+          A passkey can protect a Nostr identity with your device biometric or
+          security key. The private key stays encrypted in this browser and is
+          unlocked only after passkey verification.
+        </p>
+        <div class="row">
+          <button id="passkey-btn" type="button" class="secondary">Create passkey identity</button>
+          <button id="passkey-forget-btn" type="button" class="secondary" hidden>Forget on this device</button>
+        </div>
+        <div class="row">
+          <button id="passkey-recovery-btn" type="button" class="secondary" hidden>Reveal recovery key</button>
+          <button id="passkey-recovery-copy-btn" type="button" class="secondary" hidden>Copy recovery key</button>
+        </div>
+        <p class="key-value" id="passkey-recovery-value" hidden></p>
+        <p class="hint" id="passkey-recovery-hint" hidden>
+          Store this nsec offline. Anyone with it can control this Nostr identity.
+        </p>
+        <label class="row" style="align-items:flex-start">
+          <span class="hint" style="margin:0;min-width:150px">Restore recovery nsec</span>
+          <input id="passkey-recovery-input" type="password" autocomplete="off" spellcheck="false" placeholder="nsec1…" style="flex:1;min-width:0">
+        </label>
+        <div class="row">
+          <button id="passkey-restore-btn" type="button" class="secondary">Restore into a new passkey</button>
+        </div>
+        <p class="hint" id="passkey-restore-hint">
+          The recovery key is used only in this browser and is never sent to the server.
+        </p>
+        <p class="hint" id="passkey-hint" hidden></p>
+      </div>
+    </details>
+
     <div id="saved-signers-panel" class="section-divider" hidden>
       <p class="hint">Saved on this device:</p>
       <div id="saved-bunker-row" class="row saved-row" hidden>
@@ -255,6 +327,7 @@
 </div>
 
 <script src="/static/nostr-connect-vendor.js"></script>
+<script src="/static/nostr-passkey-vendor.js"></script>
 <script src="/static/nostr-connect-ui.js"></script>
 <script src="/static/nostr-account-page.js"></script>
 </body>

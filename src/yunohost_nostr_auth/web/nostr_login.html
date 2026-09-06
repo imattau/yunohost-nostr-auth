@@ -139,13 +139,16 @@
   <button id="local-key-btn" type="button" class="secondary" style="margin-top:10px" hidden>
     Sign in with saved key (this browser)
   </button>
+  <button id="passkey-btn" type="button" class="secondary" style="margin-top:10px" hidden>
+    Sign in with passkey
+  </button>
   <div class="message" id="message"></div>
 
   <p class="sub" style="margin-top:16px">
     <a href="/yunohost/sso/login">Use your password instead</a>
   </p>
 
-  <details class="remote-signer">
+  <details class="remote-signer linking-option">
     <summary>Use a remote signer instead (NIP-46)</summary>
     <div class="remote-signer-body">
       <p class="sub" style="margin-bottom:8px">
@@ -167,6 +170,7 @@
 </div>
 
 <script src="/static/nostr-connect-vendor.js"></script>
+<script src="/static/nostr-passkey-vendor.js"></script>
 <script src="/static/nostr-connect-ui.js"></script>
 <script src="/static/nostr-login-page.js"></script>
 </body>

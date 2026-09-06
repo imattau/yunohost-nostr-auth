@@ -137,11 +137,16 @@ def test_link_flow_requires_authenticated_cookie(app, client, monkeypatch):
 
     event = _sign(keys, challenge)
     response = client.post(
-        "/link", json={"event": event}, headers={"cookie": "yunohost.portal=whatever"}
+        "/link",
+        json={"event": event, "signer_type": "passkey", "label": "Laptop"},
+        headers={"cookie": "yunohost.portal=whatever"},
     )
 
     assert response.status_code == 200, response.text
-    assert app.state.mappings.get_by_username("matt").pubkey == keys.public_key().to_hex()
+    identity = app.state.mappings.get_by_username("matt")
+    assert identity.pubkey == keys.public_key().to_hex()
+    assert identity.signer_type == "passkey"
+    assert identity.label == "Laptop"
 
 
 def test_link_without_cookie_is_rejected(client):
@@ -178,8 +183,20 @@ def test_identity_endpoint_reports_linked_state(app, client, monkeypatch):
     body = response.json()
     assert body["linked"] is True
     assert body["username"] == "matt"
-    assert body["pubkey"] == "a" * 64
-    assert body["npub"].startswith("npub1")
+
+
+def test_identity_endpoint_reports_unlinked_when_only_identity_is_revoked(app, client, monkeypatch):
+    app.state.mappings.link("matt", "a" * 64)
+    identity_id = app.state.mappings.get_by_username("matt").identity_id
+    app.state.mappings.revoke_identity(identity_id, "matt")
+    monkeypatch.setattr(
+        portal_client, "get_authenticated_username", lambda cookie_header, **kw: "matt"
+    )
+
+    response = client.get("/identity", headers={"cookie": "yunohost.portal=whatever"})
+
+    assert response.status_code == 200
+    assert response.json() == {"linked": False}
 
 
 def test_identity_endpoint_unlinked(app, client, monkeypatch):

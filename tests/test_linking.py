@@ -54,6 +54,30 @@ def test_confirm_and_link_creates_mapping(store, monkeypatch):
     assert store.get_by_username("matt").pubkey == keys.public_key().to_hex()
 
 
+def test_confirm_and_add_keeps_existing_identity(store, monkeypatch):
+    _fake_authenticated_as(monkeypatch, "matt")
+    existing = Keys.generate()
+    store.link("matt", existing.public_key().to_hex())
+    new_keys = Keys.generate()
+    challenge = _link_challenge(nonce="add-1")
+
+    username = linking.confirm_and_add(
+        store,
+        cookie_header="yunohost.portal=whatever",
+        host=DOMAIN,
+        challenge=challenge,
+        event_json=_signed_event(new_keys, challenge),
+        signer_type="nip46",
+        label="Phone",
+    )
+
+    assert username == "matt"
+    assert [identity.pubkey for identity in store.list_by_username("matt")] == [
+        new_keys.public_key().to_hex(),
+        existing.public_key().to_hex(),
+    ]
+
+
 def test_confirm_and_link_requires_a_challenge(store, monkeypatch):
     _fake_authenticated_as(monkeypatch, "matt")
     keys = Keys.generate()

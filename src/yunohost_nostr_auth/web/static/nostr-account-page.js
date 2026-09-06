@@ -5,12 +5,12 @@
   var subtitle = document.getElementById("subtitle");
   var signedOut = document.getElementById("signed-out");
   var signedIn = document.getElementById("signed-in");
-  var linkedInfo = document.getElementById("linked-info");
+  var identityList = document.getElementById("identity-list");
+  var identityListItems = document.getElementById("identity-list-items");
   var unlinkedNote = document.getElementById("unlinked-note");
-  var npubValue = document.getElementById("npub-value");
-  var nip05Value = document.getElementById("nip05-value");
-  var createdValue = document.getElementById("created-value");
-  var lastUsedValue = document.getElementById("last-used-value");
+  var linkModeLabel = document.getElementById("link-mode-label");
+  var linkMode = document.getElementById("link-mode");
+  var identityLabel = document.getElementById("identity-label");
   var linkBtn = document.getElementById("link-btn");
   var unlinkBtn = document.getElementById("unlink-btn");
   var goLoginBtn = document.getElementById("go-login-btn");
@@ -23,6 +23,16 @@
   var qrUriText = document.getElementById("qr-uri-text");
   var qrCancelBtn = document.getElementById("qr-cancel-btn");
   var generateBtn = document.getElementById("generate-btn");
+  var passkeyBtn = document.getElementById("passkey-btn");
+  var passkeyForgetBtn = document.getElementById("passkey-forget-btn");
+  var passkeyRecoveryBtn = document.getElementById("passkey-recovery-btn");
+  var passkeyRecoveryCopyBtn = document.getElementById("passkey-recovery-copy-btn");
+  var passkeyRecoveryValue = document.getElementById("passkey-recovery-value");
+  var passkeyRecoveryHint = document.getElementById("passkey-recovery-hint");
+  var passkeyRecoveryInput = document.getElementById("passkey-recovery-input");
+  var passkeyRestoreBtn = document.getElementById("passkey-restore-btn");
+  var passkeyRestoreHint = document.getElementById("passkey-restore-hint");
+  var passkeyHint = document.getElementById("passkey-hint");
   var generatedKeyBox = document.getElementById("generated-key-box");
   var generatedNpub = document.getElementById("generated-npub");
   var generatedNsec = document.getElementById("generated-nsec");
@@ -36,10 +46,13 @@
   var savedLocalKeyRow = document.getElementById("saved-local-key-row");
   var forgetBunkerBtn = document.getElementById("forget-bunker-btn");
   var forgetLocalKeyBtn = document.getElementById("forget-local-key-btn");
+  var allowIdentityLinking = true;
 
   var NSEC_MASK = "•".repeat(63);
   var generatedKeypair = null;
   var nsecRevealed = false;
+  var currentUsername = "";
+  var passkeyRecoveryNsec = "";
 
   function showMessage(text, kind) {
     messageEl.textContent = text;
@@ -78,31 +91,121 @@
     savedLocalKeyRow.hidden = !hasLocal;
   }
 
-  function renderIdentity(identity) {
-    signedOut.hidden = true;
-    signedIn.hidden = false;
-
-    if (identity.linked) {
-      subtitle.textContent = "Your account has a linked Nostr identity.";
-      linkedInfo.hidden = false;
-      unlinkedNote.hidden = true;
-      npubValue.textContent = identity.npub;
-      nip05Value.textContent = identity.username + "@" + window.location.hostname;
-      createdValue.textContent = formatTimestamp(identity.created_at);
-      lastUsedValue.textContent = formatTimestamp(identity.last_used);
-      linkBtn.textContent = "Replace identity";
-      unlinkBtn.hidden = false;
-    } else {
-      subtitle.textContent = "Link a Nostr identity to sign in without your password.";
-      linkedInfo.hidden = true;
-      unlinkedNote.hidden = false;
-      linkBtn.textContent = "Link identity";
-      unlinkBtn.hidden = true;
+  function hasStoredPasskey() {
+    try {
+      return !!(
+        window.NostrPasskey &&
+        window.NostrPasskey.hasStoredPasskeyIdentity()
+      );
+    } catch (e) {
+      return false;
     }
   }
 
+  var currentIdentities = [];
+
+  function hasActiveIdentity() {
+    return currentIdentities.some(function (identity) { return identity.enabled; });
+  }
+
+  function signerLabel(signerType) {
+    return {
+      nip07: "Browser extension",
+      nip46: "Remote signer",
+      passkey: "Passkey",
+      unknown: "Local signer"
+    }[signerType] || signerType || "Unknown signer";
+  }
+
+  function renderIdentities(payload) {
+    signedOut.hidden = true;
+    signedIn.hidden = false;
+    currentIdentities = payload.identities || [];
+    currentUsername = payload.username || "";
+
+    var activeCount = currentIdentities.filter(function (identity) { return identity.enabled; }).length;
+    if (activeCount > 0) {
+      subtitle.textContent = activeCount === 1
+        ? "Your account has one linked Nostr identity."
+        : "Your account has " + activeCount + " linked Nostr identities.";
+      identityList.hidden = false;
+      unlinkedNote.hidden = true;
+      linkModeLabel.hidden = false;
+      linkBtn.textContent = linkMode.value === "add" ? "Add identity" : "Replace identity";
+      unlinkBtn.hidden = false;
+    } else {
+      subtitle.textContent = "Link a Nostr identity to sign in without your password.";
+      identityList.hidden = true;
+      unlinkedNote.hidden = false;
+      linkModeLabel.hidden = true;
+      linkMode.value = "replace";
+      linkBtn.textContent = "Link identity";
+      unlinkBtn.hidden = true;
+    }
+
+    if (!allowIdentityLinking) {
+      subtitle.textContent += " Self-service identity linking is currently disabled by the administrator.";
+      linkModeLabel.hidden = true;
+      identityLabel.hidden = true;
+      linkBtn.hidden = true;
+      document.querySelectorAll(".linking-option").forEach(function (option) {
+        option.hidden = true;
+      });
+    }
+
+    identityListItems.replaceChildren();
+    currentIdentities.forEach(function (identity) {
+      var card = document.createElement("div");
+      card.className = "identity-card";
+
+      var name = document.createElement("div");
+      name.className = "identity-name";
+      name.textContent = identity.label || "Unnamed identity";
+      card.appendChild(name);
+
+      var meta = document.createElement("div");
+      meta.className = "identity-meta";
+      meta.textContent = signerLabel(identity.signer_type) + " · " + identity.npub
+        + " · Last used: " + formatTimestamp(identity.last_used);
+      card.appendChild(meta);
+
+      var actions = document.createElement("div");
+      actions.className = "identity-actions";
+      if (identity.enabled) {
+        var renameButton = document.createElement("button");
+        renameButton.type = "button";
+        renameButton.className = "secondary";
+        renameButton.textContent = "Rename";
+        renameButton.addEventListener("click", function () {
+          renameIdentity(identity);
+        });
+        actions.appendChild(renameButton);
+
+        var revokeButton = document.createElement("button");
+        revokeButton.type = "button";
+        revokeButton.className = "secondary";
+        revokeButton.textContent = "Revoke this identity";
+        revokeButton.addEventListener("click", function () {
+          revokeIdentity(identity.id);
+        });
+        actions.appendChild(revokeButton);
+      } else {
+        var revoked = document.createElement("span");
+        revoked.className = "hint";
+        revoked.textContent = "Revoked";
+        actions.appendChild(revoked);
+      }
+      card.appendChild(actions);
+      identityListItems.appendChild(card);
+    });
+  }
+
   async function loadIdentity() {
-    var result = await fetchJSON("/identity");
+    var policyResult = await fetchJSON("/policy");
+    if (policyResult.ok && policyResult.body) {
+      allowIdentityLinking = policyResult.body.allow_identity_linking !== false;
+    }
+    var result = await fetchJSON("/identities");
     if (result.status === 401) {
       subtitle.textContent = "";
       signedOut.hidden = false;
@@ -113,7 +216,7 @@
       showMessage("Could not load your identity status - please reload the page.", "error");
       return;
     }
-    renderIdentity(result.body);
+    renderIdentities(result.body);
     renderSavedSigners();
   }
 
@@ -124,14 +227,22 @@
     qrShowBtn.disabled = disabled;
     generateBtn.disabled = disabled;
     useGeneratedKeyBtn.disabled = disabled;
+    passkeyBtn.disabled = disabled;
+    passkeyForgetBtn.disabled = disabled;
+    passkeyRecoveryBtn.disabled = disabled;
+    passkeyRecoveryCopyBtn.disabled = disabled;
+    passkeyRecoveryInput.disabled = disabled;
+    passkeyRestoreBtn.disabled = disabled;
+    linkMode.disabled = disabled;
+    identityLabel.disabled = disabled;
   }
 
-  // Shared by NIP-07 and every NIP-46/local-key connection path: once we
+  // Shared by NIP-07, NIP-46, local-key, and passkey connection paths: once we
   // have a signEvent(unsignedEvent) function, the rest of the linking flow
   // is identical (PLAN.md: "NIP-07 and NIP-46 should ultimately feed the
   // same verification pipeline" - a locally-generated key is just another
   // kind of signer by the same logic).
-  async function performLink(signEventFn) {
+  async function performLink(signEventFn, signerType) {
     clearMessage();
     setLinkButtonsDisabled(true);
 
@@ -165,16 +276,25 @@
         return;
       }
 
-      var linkResult = await fetchJSON("/link", {
+      var adding = hasActiveIdentity() && linkMode.value === "add";
+      var endpoint = adding ? "/identities/link" : "/link";
+      var requestBody = {
+        event: signedEvent,
+        signer_type: signerType || "unknown"
+      };
+      var label = identityLabel.value.trim();
+      if (label) requestBody.label = label;
+      var linkResult = await fetchJSON(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event: signedEvent })
+        body: JSON.stringify(requestBody)
       });
 
       if (linkResult.ok) {
         showMessage("Identity linked.", "success");
         generatedKeyBox.hidden = true;
         generatedKeypair = null;
+        updatePasskeyUi();
         await loadIdentity();
         return;
       }
@@ -199,23 +319,187 @@
     }
     return performLink(function (event) {
       return window.nostr.signEvent(event);
-    });
+    }, "nip07");
   }
 
-  async function linkWithSigner(signer) {
+  async function linkWithSigner(signer, signerType) {
     try {
       await performLink(function (event) {
         return signer.signEvent(event);
-      });
+      }, signerType);
     } finally {
-      signer.close();
+      disposeSigner(signer);
       renderSavedSigners();
+    }
+  }
+
+  function disposeSigner(signer) {
+    if (!signer) return;
+    if (typeof signer.close === "function") signer.close();
+    if (typeof signer.destroy === "function") signer.destroy();
+  }
+
+  function updatePasskeyUi() {
+    if (!window.NostrPasskey) {
+      passkeyBtn.disabled = true;
+      passkeyForgetBtn.hidden = true;
+      passkeyRecoveryBtn.hidden = true;
+      passkeyRecoveryCopyBtn.hidden = true;
+      passkeyRecoveryValue.hidden = true;
+      passkeyRecoveryHint.hidden = true;
+      passkeyRecoveryInput.disabled = true;
+      passkeyRestoreBtn.disabled = true;
+      passkeyRestoreHint.textContent = "Passkey support is unavailable on this page.";
+      passkeyHint.hidden = false;
+      passkeyHint.textContent = "Passkey support is unavailable on this page.";
+      return;
+    }
+    var hasStored = hasStoredPasskey();
+    passkeyForgetBtn.hidden = !hasStored;
+    passkeyRecoveryBtn.hidden = !hasStored;
+    passkeyRecoveryCopyBtn.hidden = !hasStored || !passkeyRecoveryNsec;
+    passkeyRecoveryHint.hidden = !passkeyRecoveryNsec;
+    if (!hasStored) {
+      passkeyRecoveryNsec = "";
+      passkeyRecoveryValue.textContent = "";
+      passkeyRecoveryValue.hidden = true;
+      passkeyRecoveryBtn.textContent = "Reveal recovery key";
+    }
+    passkeyRestoreBtn.disabled = hasStored;
+    passkeyRestoreHint.textContent = hasStored
+      ? "Forget the existing local passkey before restoring another recovery key."
+      : "The recovery key is used only in this browser and is never sent to the server.";
+    passkeyBtn.textContent = hasStored
+      ? "Use saved passkey identity"
+      : generatedKeypair
+        ? "Protect generated key with passkey"
+        : "Create passkey identity";
+    passkeyHint.hidden = false;
+    passkeyHint.textContent = hasStored
+      ? "A passkey identity is saved on this device. Unlock it to link or add it."
+      : generatedKeypair
+        ? "The generated key will be encrypted locally and unlocked with this passkey."
+        : "The passkey will protect a new Nostr identity on this device.";
+  }
+
+  async function usePasskeyIdentity() {
+    clearMessage();
+    setLinkButtonsDisabled(true);
+    try {
+      if (!window.NostrPasskey) {
+        showMessage("Passkey support is unavailable on this page.", "error");
+        return;
+      }
+
+      var identity;
+      if (hasStoredPasskey()) {
+        identity = await window.NostrPasskey.unlockPasskeyIdentity();
+      } else if (generatedKeypair) {
+        identity = await window.NostrPasskey.importPasskeyIdentityFromNsec(
+          generatedKeypair.nsec,
+          {
+            rpName: "YunoHost Nostr Identity",
+            userName: currentUsername || "nostr-identity",
+            displayName: "YunoHost Nostr Identity",
+            autoLockTimeout: 300000
+          }
+        );
+      } else {
+        identity = await window.NostrPasskey.registerPasskeyIdentity({
+          rpName: "YunoHost Nostr Identity",
+          userName: currentUsername || "nostr-identity",
+          displayName: "YunoHost Nostr Identity",
+          autoLockTimeout: 300000
+        });
+      }
+
+      var signer = window.NostrPasskey.buildPasskeySignerShim(identity.secretKey);
+      await linkWithSigner(signer, "passkey");
+    } catch (e) {
+      showMessage(e.message || "Could not use a passkey on this device.", "error");
+    } finally {
+      setLinkButtonsDisabled(false);
+      updatePasskeyUi();
+    }
+  }
+
+  async function revealPasskeyRecoveryKey() {
+    if (!hasStoredPasskey()) return;
+    if (passkeyRecoveryNsec) {
+      passkeyRecoveryNsec = "";
+      passkeyRecoveryValue.textContent = "";
+      passkeyRecoveryValue.hidden = true;
+      passkeyRecoveryCopyBtn.hidden = true;
+      passkeyRecoveryHint.hidden = true;
+      passkeyRecoveryBtn.textContent = "Reveal recovery key";
+      return;
+    }
+
+    clearMessage();
+    passkeyRecoveryBtn.disabled = true;
+    try {
+      passkeyRecoveryNsec = await window.NostrPasskey.exportPasskeyIdentityAsNsec();
+      passkeyRecoveryValue.textContent = passkeyRecoveryNsec;
+      passkeyRecoveryValue.hidden = false;
+      passkeyRecoveryCopyBtn.hidden = false;
+      passkeyRecoveryHint.hidden = false;
+      passkeyRecoveryBtn.textContent = "Hide recovery key";
+      showMessage("Recovery key revealed. Store it securely offline.", "success");
+    } catch (e) {
+      showMessage(e.message || "Could not unlock the recovery key.", "error");
+    } finally {
+      passkeyRecoveryBtn.disabled = false;
+    }
+  }
+
+  async function copyPasskeyRecoveryKey() {
+    if (!passkeyRecoveryNsec) return;
+    try {
+      await navigator.clipboard.writeText(passkeyRecoveryNsec);
+      showMessage("Recovery key copied to clipboard.", "success");
+    } catch (e) {
+      showMessage("Could not copy automatically - select the revealed key manually.", "error");
+    }
+  }
+
+  async function restorePasskeyIdentity() {
+    if (!window.NostrPasskey || hasStoredPasskey()) return;
+    var recoveryNsec = passkeyRecoveryInput.value.trim();
+    if (!recoveryNsec) {
+      showMessage("Enter a recovery nsec first.", "error");
+      return;
+    }
+
+    clearMessage();
+    setLinkButtonsDisabled(true);
+    passkeyRecoveryNsec = "";
+    passkeyRecoveryValue.textContent = "";
+    passkeyRecoveryValue.hidden = true;
+    passkeyRecoveryHint.hidden = true;
+    try {
+      var identity = await window.NostrPasskey.importPasskeyIdentityFromNsec(
+        recoveryNsec,
+        {
+          rpName: "YunoHost Nostr Identity",
+          userName: currentUsername || "nostr-identity",
+          displayName: "YunoHost Nostr Identity",
+          autoLockTimeout: 300000
+        }
+      );
+      var signer = window.NostrPasskey.buildPasskeySignerShim(identity.secretKey);
+      await linkWithSigner(signer, "passkey");
+    } catch (e) {
+      showMessage(e.message || "Could not restore the recovery key.", "error");
+    } finally {
+      passkeyRecoveryInput.value = "";
+      setLinkButtonsDisabled(false);
+      updatePasskeyUi();
     }
   }
 
   async function unlinkIdentity() {
     clearMessage();
-    if (!window.confirm("Unlink your Nostr identity? You can link a new one anytime.")) {
+    if (!window.confirm("Unlink all Nostr identities? You can link a new one anytime.")) {
       return;
     }
 
@@ -242,10 +526,75 @@
     }
   }
 
+  async function revokeIdentity(identityId) {
+    clearMessage();
+    if (!window.confirm("Revoke this identity? It will no longer be able to sign in.")) {
+      return;
+    }
+
+    try {
+      var result = await fetchJSON("/identities/" + encodeURIComponent(identityId), { method: "DELETE" });
+      if (result.ok) {
+        showMessage("Identity revoked.", "success");
+        await loadIdentity();
+        return;
+      }
+      var errorText = (result.body && result.body.error) || "Could not revoke that identity.";
+      showMessage(errorText, "error");
+    } catch (networkError) {
+      showMessage("Could not reach the server. Check your connection and try again.", "error");
+    }
+  }
+
+  async function renameIdentity(identity) {
+    var label = window.prompt("Label for this identity:", identity.label || "");
+    if (label === null) return;
+    label = label.trim();
+    if (!label) {
+      showMessage("Enter a label, or cancel to leave it unchanged.", "error");
+      return;
+    }
+
+    clearMessage();
+    try {
+      var result = await fetchJSON("/identities/" + encodeURIComponent(identity.id), {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: label })
+      });
+      if (result.ok) {
+        showMessage("Identity renamed.", "success");
+        await loadIdentity();
+        return;
+      }
+      var errorText = (result.body && result.body.error) || "Could not rename that identity.";
+      showMessage(errorText, "error");
+    } catch (networkError) {
+      showMessage("Could not reach the server. Check your connection and try again.", "error");
+    }
+  }
+
   linkBtn.addEventListener("click", linkWithNip07);
   unlinkBtn.addEventListener("click", unlinkIdentity);
+  linkMode.addEventListener("change", function () {
+    linkBtn.textContent = linkMode.value === "add" ? "Add identity" : "Replace identity";
+  });
   goLoginBtn.addEventListener("click", function () {
     window.location.href = "/yunohost/sso/";
+  });
+  passkeyBtn.addEventListener("click", usePasskeyIdentity);
+  passkeyRecoveryBtn.addEventListener("click", revealPasskeyRecoveryKey);
+  passkeyRecoveryCopyBtn.addEventListener("click", copyPasskeyRecoveryKey);
+  passkeyRestoreBtn.addEventListener("click", restorePasskeyIdentity);
+  passkeyForgetBtn.addEventListener("click", function () {
+    if (!window.NostrPasskey || !hasStoredPasskey()) return;
+    if (!window.confirm("Forget the encrypted passkey identity on this device? The server link will remain.")) {
+      return;
+    }
+    window.NostrPasskey.clearPasskeyIdentity();
+    passkeyRecoveryNsec = "";
+    showMessage("Passkey identity forgotten on this device.", "success");
+    updatePasskeyUi();
   });
 
   bunkerConnectBtn.addEventListener("click", async function () {
@@ -259,7 +608,7 @@
     bunkerConnectBtn.textContent = "Connecting…";
     try {
       var signer = await window.NostrConnectUI.connectViaBunkerUri(value);
-      await linkWithSigner(signer);
+      await linkWithSigner(signer, "nip46");
     } catch (e) {
       showMessage(e.message || "Could not connect to that signer.", "error");
     } finally {
@@ -281,7 +630,7 @@
         qrUriText.textContent = uri;
       }, qrAbortController.signal);
       qrBox.hidden = true;
-      await linkWithSigner(signer);
+      await linkWithSigner(signer, "nip46");
     } catch (e) {
       if (!qrAbortController.signal.aborted) {
         showMessage("The connection request timed out or was not approved.", "error");
@@ -307,6 +656,7 @@
     revealNsecBtn.textContent = "Reveal";
     rememberKeyCheckbox.checked = false;
     generatedKeyBox.hidden = false;
+    updatePasskeyUi();
   });
 
   revealNsecBtn.addEventListener("click", function () {
@@ -336,7 +686,7 @@
       window.NostrConnectUI.saveLocalKey(generatedKeypair.secretKeyHex);
     }
     var signer = window.NostrConnectUI.createLocalSigner(generatedKeypair.secretKeyHex);
-    await linkWithSigner(signer);
+    await linkWithSigner(signer, "unknown");
   });
 
   forgetBunkerBtn.addEventListener("click", function () {
@@ -350,6 +700,7 @@
   });
 
   loadIdentity().finally(function () {
+    updatePasskeyUi();
     app.hidden = false;
   });
 })();
