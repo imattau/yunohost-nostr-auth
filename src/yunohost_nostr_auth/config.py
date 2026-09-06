@@ -34,6 +34,24 @@ class Settings(BaseSettings):
     mint_session_socket: Path = Path("/run/nostr_auth-mint/mint.sock")
     identity_lookup_socket: Path = Path("/run/nostr_auth-lookup/lookup.sock")
 
+    # Relay-list lookup (identity/relays.py, ynh/relay_lookup_server.py):
+    # answers "what relays does this linked user prefer" for local
+    # consumers such as nostr_catalog, by fetching the linked pubkey's own
+    # NIP-65 (kind 10002) event. Shares identity_lookup's socket/group by
+    # default - same trust boundary, same consumers - but is independently
+    # configurable since it's a separate service with its own lifecycle.
+    relay_lookup_socket: Path = Path("/run/nostr_auth-lookup/relays.sock")
+    relay_lookup_group: str = "nostr-auth-lookup"
+    # Comma-separated bootstrap relays used only to *discover* a pubkey's
+    # own relay list - same pattern as nostr_blog's `fallback_relays`
+    # install question.
+    relay_bootstrap_relays: str = "wss://relay.damus.io,wss://nos.lol"
+    relay_fetch_timeout_seconds: float = 8.0
+    # A fetch happens at most this often per pubkey; cheaper reads in
+    # between are served from relay_cache.py's cache, stale or not -
+    # NIP-65 doesn't change often enough to justify a shorter TTL.
+    relay_cache_ttl_seconds: int = 3600
+
     # PLAN.md Phase 13: "rate limiting, brute-force throttling." Rather
     # than reimplement IP banning in Python, this writes a dedicated,
     # fail2ban-parseable log of auth/link failures (each line includes the
@@ -47,6 +65,14 @@ class Settings(BaseSettings):
     @property
     def mappings_db_path(self) -> Path:
         return self.data_dir / "identities.db"
+
+    @property
+    def relay_cache_db_path(self) -> Path:
+        return self.data_dir / "relays.db"
+
+    @property
+    def relay_bootstrap_relay_list(self) -> list[str]:
+        return [relay.strip() for relay in self.relay_bootstrap_relays.split(",") if relay.strip()]
 
 
 def get_settings() -> Settings:

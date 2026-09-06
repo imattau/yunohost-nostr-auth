@@ -19,6 +19,7 @@ dependencies = [
 yunohost-nostr-auth = "yunohost_nostr_auth.server:main"
 yunohost-nostr-auth-mint-session-server = "yunohost_nostr_auth.ynh.mint_session_server:main"
 yunohost-nostr-auth-identity-lookup-server = "yunohost_nostr_auth.ynh.identity_lookup_server:main"
+yunohost-nostr-auth-relay-lookup-server = "yunohost_nostr_auth.ynh.relay_lookup_server:main"
 yunohost-nostr-auth-admin = "yunohost_nostr_auth.admin_cli:main"
 
 [dependency-groups]
