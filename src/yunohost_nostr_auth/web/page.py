@@ -44,6 +44,7 @@ _STATIC_CONTENT_TYPES = {
     "nostr-connect-ui.js": "application/javascript",
     "nostr-login-page.js": "application/javascript",
     "nostr-account-page.js": "application/javascript",
+    "nostr-admin-page.js": "application/javascript",
 }
 
 
@@ -55,6 +56,11 @@ def render_login_page() -> str:
 @lru_cache(maxsize=1)
 def render_account_page() -> str:
     return resources.files(__package__).joinpath("nostr_account.html").read_text()
+
+
+@lru_cache(maxsize=1)
+def render_admin_page() -> str:
+    return resources.files(__package__).joinpath("nostr_admin.html").read_text()
 
 
 @lru_cache(maxsize=None)

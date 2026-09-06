@@ -552,11 +552,26 @@ Never log signed authentication payloads unnecessarily.
 
 ## Phase 14: Admin interface
 
-**Status: CLI and YunoHost admin UI expanded.** The admin command now supports
-additive linking (`link --add`), signer metadata, per-identity
-rename/revocation, full-account unlink, and listing enabled/revoked identities.
-The `nostr_auth_ynh` config panel exposes those same operations, including the
-identity IDs needed to target one device without affecting the others.
+**Status: CLI, YunoHost admin UI, and a standalone dashboard.** The admin
+command now supports additive linking (`link --add`), signer metadata,
+per-identity rename/revocation, full-account unlink, and listing
+enabled/revoked identities. The `nostr_auth_ynh` config panel exposes those
+same operations, including the identity IDs needed to target one device
+without affecting the others.
+
+`GET /nostr-admin` additionally serves a self-contained dashboard - a
+modern alternative to typing identity IDs into YunoHost's generic
+config-panel form. It's gated on `/admin/api/*` requiring the visiting
+browser's own YunoHost session to carry the `admins` group (checked by
+forwarding the session cookie to yunohost-portal-api's `/me`, the same
+trick `identity/linking.py` already uses for per-user auth - see
+`ynh/portal_client.py`'s `get_authenticated_session`). It lists every
+linked identity across every YunoHost account with search/filter, and can
+link/rename/revoke/unlink identities for any account - all in-process
+SQLite work via `identity/mappings.py`, no new privilege boundary. Runtime
+policy switches (login/linking on-off, challenge timing) remain in the
+YunoHost config panel only - flipping those still needs the systemd
+restart only the packaged config-panel actions currently trigger.
 
 Initially CLI:
 

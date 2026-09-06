@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nostr Identities - Admin</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f7f8;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --muted: #666666;
+    --border: #ddd;
+    --accent: #6b3fa0;
+    --accent-fg: #ffffff;
+    --danger: #a23b3b;
+    --danger-fg: #ffffff;
+    --error-bg: #fdecea;
+    --error-fg: #7a1f1f;
+    --success-bg: #e8f5e9;
+    --success-fg: #1e4620;
+    --chip-bg: #efeaf7;
+    --chip-fg: #4a2d72;
+    --row-hover: #f1eef8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a;
+      --card: #232326;
+      --text: #eaeaea;
+      --muted: #9a9a9a;
+      --border: #38383c;
+      --accent: #a685e2;
+      --accent-fg: #17171a;
+      --danger: #d97a7a;
+      --danger-fg: #17171a;
+      --error-bg: #3a1f1f;
+      --error-fg: #f3b4b4;
+      --success-bg: #1c3220;
+      --success-fg: #b6e3bc;
+      --chip-bg: #2c2438;
+      --chip-fg: #cdb8ec;
+      --row-hover: #29242f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  header p { margin: 0.15rem 0 0; color: var(--muted); font-size: 0.85rem; }
+  #whoami { color: var(--muted); font-size: 0.85rem; text-align: right; }
+  main {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 1.5rem 2rem 4rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .card h2 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+  }
+  .toolbar {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  input[type="text"], input[type="search"], select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font-size: 0.9rem;
+  }
+  #search { flex: 1; min-width: 12rem; }
+  button {
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.danger { background: var(--danger); color: var(--danger-fg); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    text-align: left;
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.87rem;
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  tbody tr:hover { background: var(--row-hover); }
+  .pubkey { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.78rem; color: var(--muted); }
+  .chip {
+    display: inline-block;
+    background: var(--chip-bg);
+    color: var(--chip-fg);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+  .chip.revoked { background: var(--error-bg); color: var(--error-fg); }
+  .row-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .row-actions button { padding: 0.3rem 0.6rem; font-size: 0.78rem; }
+  .username-group td:first-child { font-weight: 600; }
+  form.add-form {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.7rem;
+    align-items: end;
+  }
+  form.add-form label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.25rem; }
+  form.add-form input, form.add-form select { width: 100%; }
+  .checkbox-field { display: flex; align-items: center; gap: 0.4rem; }
+  .checkbox-field input { width: auto; }
+  #banner {
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    display: none;
+  }
+  #banner.error { background: var(--error-bg); color: var(--error-fg); display: block; }
+  #banner.success { background: var(--success-bg); color: var(--success-fg); display: block; }
+  #gate { max-width: 30rem; margin: 4rem auto; text-align: center; }
+  #gate.hidden, #app.hidden { display: none; }
+  .empty { color: var(--muted); font-style: italic; padding: 1rem 0; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div id="gate" class="card hidden">
+  <h2 id="gate-title">Checking access...</h2>
+  <p id="gate-message" class="muted"></p>
+</div>
+
+<div id="app" class="hidden">
+  <header>
+    <div>
+      <h1>Nostr Identities</h1>
+      <p>Manage linked identities across every YunoHost account on this server.</p>
+    </div>
+    <div id="whoami"></div>
+  </header>
+
+  <main>
+    <div id="banner"></div>
+
+    <section class="card">
+      <h2>Link an identity</h2>
+      <form class="add-form" id="add-form">
+        <div>
+          <label for="add-username">YunoHost account</label>
+          <input type="text" id="add-username" name="username" placeholder="e.g. matt" required>
+        </div>
+        <div>
+          <label for="add-pubkey">Public key (npub or hex)</label>
+          <input type="text" id="add-pubkey" name="pubkey" placeholder="npub1... or hex" required>
+        </div>
+        <div>
+          <label for="add-signer-type">Signer type</label>
+          <select id="add-signer-type" name="signer_type">
+            <option value="unknown">Unknown</option>
+            <option value="nip07">NIP-07 extension</option>
+            <option value="nip46">NIP-46 remote signer</option>
+            <option value="passkey">Passkey</option>
+          </select>
+        </div>
+        <div>
+          <label for="add-label">Label (optional)</label>
+          <input type="text" id="add-label" name="label" placeholder="e.g. Laptop passkey" maxlength="120">
+        </div>
+        <div class="checkbox-field">
+          <input type="checkbox" id="add-replace" name="replace">
+          <label for="add-replace" style="margin: 0;">Replace this account's existing identities</label>
+        </div>
+        <div>
+          <button type="submit" id="add-submit">Link identity</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Linked identities</h2>
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Filter by username, label, or pubkey">
+        <label class="checkbox-field"><input type="checkbox" id="show-revoked"> Show revoked</label>
+        <button type="button" class="secondary" id="refresh">Refresh</button>
+      </div>
+      <div id="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Public key</th>
+              <th>Signer</th>
+              <th>Label</th>
+              <th>Status</th>
+              <th>Linked</th>
+              <th>Last used</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="identities-body"></tbody>
+        </table>
+        <p class="empty" id="empty-message" style="display: none;">No identities match this filter.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/static/nostr-admin-page.js"></script>
+</body>
+</html>

@@ -56,6 +56,14 @@ def test_account_page_script_is_served(client):
     assert "performLink" in response.text
 
 
+def test_admin_page_script_is_served(client):
+    response = client.get("/static/nostr-admin-page.js")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/javascript")
+    assert "loadIdentities" in response.text
+
+
 def test_unknown_static_asset_is_404(client):
     response = client.get("/static/does-not-exist.js")
 

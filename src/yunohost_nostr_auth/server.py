@@ -12,6 +12,8 @@
     GET  /nostr-login    - sign in with an already-linked identity
     GET  /nostr-account  - link/replace/unlink, for an already
                             password-authenticated YunoHost session
+    GET  /nostr-admin    - cross-user identity dashboard, gated on the
+                            "admins" YunoHost group (see /admin/api/*)
     GET  /static/nostr-connect-vendor.js  - vendored nostr-tools NIP-46 client (Phase 10)
     GET  /static/nostr-connect-ui.js      - shared NIP-46 UI glue for the two pages above
 
@@ -44,12 +46,13 @@ from yunohost_nostr_auth.auth import login, nostr_verify
 from yunohost_nostr_auth.auth.challenge import ChallengeStore
 from yunohost_nostr_auth.config import Settings, get_settings
 from yunohost_nostr_auth.identity import linking, npub
-from yunohost_nostr_auth.identity.mappings import MappingStore
+from yunohost_nostr_auth.identity.mappings import MappingStore, PubkeyAlreadyLinked
 from yunohost_nostr_auth.web.page import (
     CONTENT_SECURITY_POLICY,
     content_type_for_static_asset,
     read_static_asset,
     render_account_page,
+    render_admin_page,
     render_login_page,
 )
 from yunohost_nostr_auth.ynh import portal_client
@@ -282,6 +285,7 @@ async def identity_endpoint(request: Request) -> Response:
 def _identity_json(identity) -> dict:
     return {
         "id": identity.identity_id,
+        "username": identity.ynh_username,
         "pubkey": identity.pubkey,
         "npub": npub.hex_to_npub(identity.pubkey),
         "created_at": identity.created_at,
@@ -314,6 +318,155 @@ def _authenticated_username(request: Request, settings: Settings) -> str:
         )
     except portal_client.PortalAuthError as e:
         raise _ApiError(401, str(e)) from e
+
+
+def _authenticated_admin(request: Request, settings: Settings) -> str:
+    """Like :func:`_authenticated_username`, but also requires the "admins"
+    YunoHost group - the same membership real yunohost-portal-api checks
+    for its own admin-gated actions. Reaching /nostr-admin's API at all
+    means this exact browser session already has full YunoHost admin
+    authority, which is why its identity-management actions below don't
+    need a second, separate confirmation the way a live-signature-backed
+    self-service link does.
+    """
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        raise _ApiError(401, "not currently logged in to YunoHost")
+    try:
+        session = portal_client.get_authenticated_session(
+            cookie_header, host=request.headers.get("host", ""), base_url=settings.portal_api_base_url
+        )
+    except portal_client.PortalAuthError as e:
+        raise _ApiError(401, str(e)) from e
+    if not session.is_admin:
+        raise _ApiError(403, "YunoHost admin access is required")
+    return session.username
+
+
+async def admin_session_endpoint(request: Request) -> Response:
+    """Lets /nostr-admin's page distinguish "not logged in", "logged in but
+    not an admin", and "logged in as an admin" without every check raising
+    the same opaque 401/403 - separate from every other admin endpoint,
+    which do require full admin access to even respond.
+    """
+    cookie_header = request.headers.get("cookie")
+    if not cookie_header:
+        return JSONResponse({"authenticated": False, "is_admin": False})
+
+    settings = get_settings()
+    try:
+        session = portal_client.get_authenticated_session(
+            cookie_header, host=request.headers.get("host", ""), base_url=settings.portal_api_base_url
+        )
+    except portal_client.PortalAuthError:
+        return JSONResponse({"authenticated": False, "is_admin": False})
+
+    return JSONResponse(
+        {"authenticated": True, "is_admin": session.is_admin, "username": session.username}
+    )
+
+
+async def admin_list_identities_endpoint(request: Request) -> Response:
+    settings = get_settings()
+    _authenticated_admin(request, settings)
+    identities = request.app.state.mappings.list_all()
+    return JSONResponse({"identities": [_identity_json(identity) for identity in identities]})
+
+
+def _admin_target(body: dict) -> str:
+    username = body.get("username")
+    if not isinstance(username, str) or not username.strip():
+        raise _ApiError(400, "missing 'username'")
+    return username.strip()
+
+
+async def admin_add_identity_endpoint(request: Request) -> Response:
+    _require_json(request)
+    settings = get_settings()
+    _authenticated_admin(request, settings)
+    body = await request.json()
+
+    username = _admin_target(body)
+    pubkey_or_npub = body.get("pubkey")
+    if not isinstance(pubkey_or_npub, str) or not pubkey_or_npub.strip():
+        raise _ApiError(400, "missing 'pubkey' (npub or hex)")
+    try:
+        pubkey_hex = npub.parse_to_hex(pubkey_or_npub.strip())
+    except ValueError as e:
+        raise _ApiError(400, str(e)) from e
+    signer_type, label = _identity_metadata(body)
+    replace = bool(body.get("replace", False))
+
+    mappings: MappingStore = request.app.state.mappings
+    try:
+        if replace:
+            mappings.link(username, pubkey_hex, signer_type=signer_type, label=label, linked_by="admin")
+            identity = mappings.get_by_pubkey(pubkey_hex)
+        else:
+            identity = mappings.add_identity(
+                username, pubkey_hex, signer_type=signer_type, label=label, linked_by="admin"
+            )
+    except PubkeyAlreadyLinked as e:
+        raise _ApiError(409, str(e)) from e
+
+    logger.info("admin added identity (%s) from %s", username, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username, "identity": _identity_json(identity)})
+
+
+async def admin_revoke_identity_endpoint(request: Request) -> Response:
+    _require_json(request)
+    settings = get_settings()
+    _authenticated_admin(request, settings)
+    body = await request.json()
+    username = _admin_target(body)
+    try:
+        identity_id = int(request.path_params["identity_id"])
+    except (TypeError, ValueError):
+        raise _ApiError(400, "identity id must be an integer") from None
+
+    if not request.app.state.mappings.revoke_identity(identity_id, username):
+        raise _ApiError(404, "identity not found or already revoked")
+
+    logger.info("admin revoked identity (%s, id=%s) from %s", username, identity_id, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username, "identity_id": identity_id})
+
+
+async def admin_rename_identity_endpoint(request: Request) -> Response:
+    _require_json(request)
+    settings = get_settings()
+    _authenticated_admin(request, settings)
+    body = await request.json()
+    username = _admin_target(body)
+    label = body.get("label")
+    if not isinstance(label, str) or not label.strip() or len(label) > 120:
+        raise _ApiError(400, "label must be a non-empty string of at most 120 characters")
+    try:
+        identity_id = int(request.path_params["identity_id"])
+    except (TypeError, ValueError):
+        raise _ApiError(400, "identity id must be an integer") from None
+
+    identity = request.app.state.mappings.update_identity_label(identity_id, username, label.strip())
+    if identity is None:
+        raise _ApiError(404, "identity not found or revoked")
+
+    logger.info("admin renamed identity (%s, id=%s) from %s", username, identity_id, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username, "identity": _identity_json(identity)})
+
+
+async def admin_unlink_endpoint(request: Request) -> Response:
+    _require_json(request)
+    settings = get_settings()
+    _authenticated_admin(request, settings)
+    body = await request.json()
+    username = _admin_target(body)
+
+    request.app.state.mappings.unlink(username)
+    logger.info("admin unlinked all identities (%s) from %s", username, _client_ip(request))
+    return JSONResponse({"ok": True, "username": username})
+
+
+async def admin_page(request: Request) -> Response:
+    return HTMLResponse(render_admin_page(), headers={"Content-Security-Policy": CONTENT_SECURITY_POLICY})
 
 
 async def identities_endpoint(request: Request) -> Response:
@@ -504,6 +657,7 @@ def create_app() -> Starlette:
         Route("/", root_redirect, methods=["GET"]),
         Route("/nostr-login", nostr_login_page, methods=["GET"]),
         Route("/nostr-account", nostr_account_page, methods=["GET"]),
+        Route("/nostr-admin", admin_page, methods=["GET"]),
         Route("/static/{filename}", static_asset, methods=["GET"]),
         Route("/challenge", challenge_endpoint, methods=["GET"]),
         Route("/authenticate", authenticate_endpoint, methods=["POST"]),
@@ -516,6 +670,20 @@ def create_app() -> Starlette:
         Route("/identities/{identity_id}", update_identity_endpoint, methods=["PATCH"]),
         Route("/identities/{identity_id}", revoke_identity_endpoint, methods=["DELETE"]),
         Route("/policy", policy_endpoint, methods=["GET"]),
+        Route("/admin/api/session", admin_session_endpoint, methods=["GET"]),
+        Route("/admin/api/identities", admin_list_identities_endpoint, methods=["GET"]),
+        Route("/admin/api/identities", admin_add_identity_endpoint, methods=["POST"]),
+        Route(
+            "/admin/api/identities/{identity_id}/revoke",
+            admin_revoke_identity_endpoint,
+            methods=["POST"],
+        ),
+        Route(
+            "/admin/api/identities/{identity_id}/rename",
+            admin_rename_identity_endpoint,
+            methods=["POST"],
+        ),
+        Route("/admin/api/identities/unlink", admin_unlink_endpoint, methods=["POST"]),
         Route("/.well-known/nostr.json", nostr_json_endpoint, methods=["GET"]),
     ]
 

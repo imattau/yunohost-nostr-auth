@@ -159,6 +159,9 @@ src/yunohost_nostr_auth/
         nostr_account.html      # /nostr-account - link/replace/unlink, generate a keypair,
                                  # and manage saved-signer state, for an already
                                  # password-authenticated session (PLAN.md Phase 5's UI)
+        nostr_admin.html        # /nostr-admin - cross-user identity dashboard for YunoHost
+                                 # admins (PLAN.md Phase 14), a modern alternative to the
+                                 # generic YunoHost config-panel form
         static/
             nostr-connect-vendor.js  # vendored nostr-tools NIP-46 client (Phase 10) - see
                                       # vendor/nostr-connect/ for the build recipe
@@ -168,6 +171,7 @@ src/yunohost_nostr_auth/
             nostr-login-page.js       # /nostr-login's own logic - external, not inline, so
                                        # CONTENT_SECURITY_POLICY's script-src can be 'self' only
             nostr-account-page.js     # /nostr-account's own logic - same reason
+            nostr-admin-page.js       # /nostr-admin's own logic - same reason
 
 vendor/nostr-connect/    # the (not shipped) build recipe for nostr-connect-vendor.js
 vendor/nostr-passkey/    # the (not shipped) build recipe for nostr-passkey-vendor.js

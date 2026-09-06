@@ -20,24 +20,42 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from dataclasses import dataclass, field
 
 DEFAULT_TIMEOUT_SECONDS = 5
+
+# portal.py's portal_me() (yunohost-core src/portal.py) excludes the
+# username's own cn and "all_users" from the returned `groups` list, but
+# does include "admins" for a server administrator - the same membership
+# check YunoHost's own portal.py uses for its admin-gated actions
+# (`"cn=admins,ou=groups,dc=yunohost,dc=org" in current_user["memberOf"]`).
+ADMIN_GROUP = "admins"
 
 
 class PortalAuthError(Exception):
     """The forwarded cookie isn't a valid, currently-authenticated session."""
 
 
-def get_authenticated_username(
+@dataclass(frozen=True)
+class AuthenticatedSession:
+    username: str
+    groups: list[str] = field(default_factory=list)
+
+    @property
+    def is_admin(self) -> bool:
+        return ADMIN_GROUP in self.groups
+
+
+def get_authenticated_session(
     cookie_header: str,
     *,
     host: str,
     base_url: str = "http://127.0.0.1:6788",
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
-) -> str:
-    """Return the ynh_username portal-api associates with `cookie_header`
-    (the exact `Cookie` request header value received from the browser,
-    e.g. `"yunohost.portal=<jwt>"`).
+) -> AuthenticatedSession:
+    """Return the ynh_username and group memberships portal-api associates
+    with `cookie_header` (the exact `Cookie` request header value received
+    from the browser, e.g. `"yunohost.portal=<jwt>"`).
 
     `host` must be the original request's `Host` header (the domain the
     browser actually used) - ldap_ynhuser.py's `get_session_cookie()`
@@ -70,4 +88,23 @@ def get_authenticated_username(
     if not username or not isinstance(username, str):
         raise PortalAuthError("portal-api response did not include a username")
 
-    return username
+    groups = body.get("groups")
+    if not isinstance(groups, list):
+        groups = []
+
+    return AuthenticatedSession(username=username, groups=[g for g in groups if isinstance(g, str)])
+
+
+def get_authenticated_username(
+    cookie_header: str,
+    *,
+    host: str,
+    base_url: str = "http://127.0.0.1:6788",
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Convenience wrapper over :func:`get_authenticated_session` for
+    every caller that only needs the username, not group membership.
+    """
+    return get_authenticated_session(
+        cookie_header, host=host, base_url=base_url, timeout=timeout
+    ).username

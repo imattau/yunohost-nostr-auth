@@ -38,3 +38,37 @@ def test_get_authenticated_username_forwards_explicit_host_header(monkeypatch):
 
     assert username == "matt"
     assert captured["headers"]["Host"] == "example.org"
+
+
+def test_get_authenticated_session_reports_admin_group(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _FakeResponse({"username": "matt", "groups": ["admins", "visitors"]})
+
+    monkeypatch.setattr(portal_client.urllib.request, "urlopen", fake_urlopen)
+
+    session = portal_client.get_authenticated_session("yunohost.portal=x", host="example.org")
+
+    assert session.username == "matt"
+    assert session.is_admin is True
+
+
+def test_get_authenticated_session_non_admin(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _FakeResponse({"username": "matt", "groups": ["visitors"]})
+
+    monkeypatch.setattr(portal_client.urllib.request, "urlopen", fake_urlopen)
+
+    session = portal_client.get_authenticated_session("yunohost.portal=x", host="example.org")
+
+    assert session.is_admin is False
+
+
+def test_get_authenticated_session_missing_groups_defaults_to_non_admin(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _FakeResponse({"username": "matt"})
+
+    monkeypatch.setattr(portal_client.urllib.request, "urlopen", fake_urlopen)
+
+    session = portal_client.get_authenticated_session("yunohost.portal=x", host="example.org")
+
+    assert session.is_admin is False
